@@ -1,0 +1,71 @@
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { AuthProvider } from '@/context/AuthContext'
+import { ToastProvider } from '@/context/ToastContext'
+import { ThemeProvider } from '@/context/ThemeContext'
+import { ProtectedRoute } from '@/components/ProtectedRoute'
+import { Login } from '@/pages/auth/Login'
+import { ResetPassword } from '@/pages/auth/ResetPassword'
+import { AdminLayout } from '@/components/Layout/AdminLayout'
+import { TeacherLayout } from '@/components/Layout/TeacherLayout'
+import { AdminDashboard } from '@/pages/admin/AdminDashboard'
+import { TeacherDashboard } from '@/pages/teacher/TeacherDashboard'
+import { StudentsPage } from '@/pages/admin/StudentsPage'
+import { TeachersPage } from '@/pages/admin/TeachersPage'
+import { ClassesSubjectsPage } from '@/pages/admin/ClassesSubjectsPage'
+import { AdminTimetablePage } from '@/pages/admin/AdminTimetablePage'
+import { FeesPage } from '@/pages/admin/FeesPage'
+import { TeacherTimetablePage } from '@/pages/teacher/TeacherTimetablePage'
+import { TeacherStudentsPage } from '@/pages/teacher/TeacherStudentsPage'
+import { TeacherStudentDetailPage } from '@/pages/teacher/TeacherStudentDetailPage'
+import { AttendancePage } from '@/pages/shared/AttendancePage'
+import { QuestionBankPage } from '@/pages/shared/QuestionBankPage'
+import { ExamsPage } from '@/pages/shared/ExamsPage'
+import { ExamDetailPage } from '@/pages/shared/ExamDetailPage'
+import { FeeChallanPage } from '@/pages/admin/FeeChallanPage'
+import { CourseBreakdownOverviewPage } from '@/pages/admin/CourseBreakdownOverviewPage'
+import { TeacherCourseBreakdownPage } from '@/pages/teacher/TeacherCourseBreakdownPage'
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <ToastProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+
+            <Route element={<ProtectedRoute allowedRole="admin" />}>
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<AdminDashboard />} />
+                <Route path="students" element={<StudentsPage />} />
+                <Route path="teachers" element={<TeachersPage />} />
+                <Route path="classes" element={<ClassesSubjectsPage />} />
+                <Route path="timetable" element={<AdminTimetablePage />} />
+                <Route path="attendance" element={<AttendancePage />} />
+                <Route path="fees" element={<FeesPage />} />
+                <Route path="fee-challans" element={<FeeChallanPage />} />
+                <Route path="course-breakdown" element={<CourseBreakdownOverviewPage />} />
+              </Route>
+            </Route>
+
+            <Route element={<ProtectedRoute allowedRole="teacher" />}>
+              <Route path="/teacher" element={<TeacherLayout />}>
+                <Route index element={<TeacherDashboard />} />
+                <Route path="students" element={<TeacherStudentsPage />} />
+                <Route path="students/:studentId" element={<TeacherStudentDetailPage />} />
+                <Route path="timetable" element={<TeacherTimetablePage />} />
+                <Route path="attendance" element={<AttendancePage />} />
+                <Route path="questions" element={<QuestionBankPage />} />
+                <Route path="exams" element={<ExamsPage />} />
+                <Route path="exams/:examId" element={<ExamDetailPage basePath="/teacher/exams" />} />
+                <Route path="course-breakdown" element={<TeacherCourseBreakdownPage />} />
+              </Route>
+            </Route>
+
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </ToastProvider>
+      </AuthProvider>
+    </ThemeProvider>
+  )
+}

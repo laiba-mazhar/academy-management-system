@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media print {
+  @page {
+    margin: 1.5cm;
+  }
+
+  html,
+  body {
+    background: #fff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  .print-area table {
+    border-collapse: collapse;
+  }
+
+  .print-area th,
+  .print-area td {
+    border-bottom: 1px solid #ddd;
+  }
+
+  .print-area .shadow,
+  .print-area [class*='shadow-'] {
+    box-shadow: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
