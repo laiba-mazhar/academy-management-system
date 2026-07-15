@@ -4,7 +4,7 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Field, Input, Select } from '@/components/ui/Input'
-import { formatDate, generateCourseSlots } from '@/lib/utils'
+import { formatDate, formatDateTime, generateCourseSlots } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import type { Class, CourseBreakdown, CourseBreakdownSlot, PlannerType, Subject } from '@/types/database'
 
@@ -19,6 +19,7 @@ export function TeacherCourseBreakdownPage() {
   const [slotsLoading, setSlotsLoading] = useState(false)
 
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({
     subject_id: '',
     total_chapters: '10',
@@ -52,6 +53,7 @@ export function TeacherCourseBreakdownPage() {
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
 
   function openCreate() {
+    setEditingId(null)
     setForm({
       subject_id: subjects[0]?.id ?? '',
       total_chapters: '10',
@@ -63,7 +65,34 @@ export function TeacherCourseBreakdownPage() {
     setShowForm(true)
   }
 
-  async function handleCreate() {
+  function openEdit(b: CourseBreakdown) {
+    setEditingId(b.id)
+    setForm({
+      subject_id: b.subject_id,
+      total_chapters: String(b.total_chapters),
+      start_date: b.start_date,
+      end_date: b.end_date,
+      planner_type: b.planner_type,
+    })
+    setError(null)
+    setShowForm(true)
+  }
+
+  async function regenerateSlots(breakdownId: string) {
+    const slotRanges = generateCourseSlots(form.start_date, form.end_date, form.planner_type)
+    const slotRows = slotRanges.map((r, idx) => ({
+      course_breakdown_id: breakdownId,
+      slot_number: idx + 1,
+      slot_start: r.start,
+      slot_end: r.end,
+      chapters: '',
+      is_done: false,
+    }))
+    await supabase.from('course_breakdown_slots').delete().eq('course_breakdown_id', breakdownId)
+    return supabase.from('course_breakdown_slots').insert(slotRows)
+  }
+
+  async function handleSave() {
     if (!form.subject_id || !form.start_date || !form.end_date) {
       setError('Subject, start date, and end date are required.')
       return
@@ -77,7 +106,58 @@ export function TeacherCourseBreakdownPage() {
       setError('Total chapters must be a positive number.')
       return
     }
+
+    const original = editingId ? breakdowns.find((b) => b.id === editingId) ?? null : null
+    const scheduleChanged =
+      !!original &&
+      (original.start_date !== form.start_date ||
+        original.end_date !== form.end_date ||
+        original.planner_type !== form.planner_type)
+
+    if (scheduleChanged) {
+      const confirmed = window.confirm(
+        'Changing the date range or planner interval will reset the weekly/biweekly/monthly slots — any chapters already filled in or marked done will be lost. Continue?'
+      )
+      if (!confirmed) return
+    }
+
     setSaving(true)
+
+    if (editingId) {
+      const { error: updateError } = await supabase
+        .from('course_breakdowns')
+        .update({
+          subject_id: form.subject_id,
+          planner_type: form.planner_type,
+          total_chapters: totalChapters,
+          start_date: form.start_date,
+          end_date: form.end_date,
+        })
+        .eq('id', editingId)
+
+      if (updateError) {
+        setSaving(false)
+        setError(friendlyError(updateError.message))
+        return
+      }
+
+      if (scheduleChanged) {
+        const { error: slotsError } = await regenerateSlots(editingId)
+        if (slotsError) {
+          setSaving(false)
+          setError(friendlyError(slotsError.message))
+          return
+        }
+      }
+
+      setSaving(false)
+      show('Course breakdown plan updated.')
+      setShowForm(false)
+      load()
+      if (openId === editingId) openDetail(editingId)
+      return
+    }
+
     const { data: breakdown, error: breakdownError } = await supabase
       .from('course_breakdowns')
       .insert({
@@ -221,7 +301,7 @@ export function TeacherCourseBreakdownPage() {
       )}
 
       {showForm && (
-        <Modal title="New Course Breakdown Plan" onClose={() => setShowForm(false)}>
+        <Modal title={editingId ? 'Edit Course Breakdown Plan' : 'New Course Breakdown Plan'} onClose={() => setShowForm(false)}>
           <div className="space-y-3">
             <Field label="Subject">
               <Select value={form.subject_id} onChange={(e) => setForm({ ...form, subject_id: e.target.value })}>
@@ -263,8 +343,8 @@ export function TeacherCourseBreakdownPage() {
               <Button variant="secondary" onClick={() => setShowForm(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleCreate} disabled={saving}>
-                {saving ? 'Creating...' : 'Create Plan'}
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Create Plan'}
               </Button>
             </div>
           </div>
@@ -277,18 +357,29 @@ export function TeacherCourseBreakdownPage() {
           onClose={() => setOpenId(null)}
           wide
         >
-          <div className="mb-3 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
+          <div className="mb-1 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
             <span>
               {formatDate(openBreakdown.start_date)} – {formatDate(openBreakdown.end_date)} ·{' '}
               {openBreakdown.total_chapters} chapters · {openBreakdown.planner_type}
             </span>
-            <button
-              onClick={() => deleteBreakdown(openBreakdown.id)}
-              className="text-sm text-red-600 hover:underline dark:text-red-400"
-            >
-              Delete Plan
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => openEdit(openBreakdown)}
+                className="text-sm text-brand-600 hover:underline dark:text-gold-400"
+              >
+                Edit Plan
+              </button>
+              <button
+                onClick={() => deleteBreakdown(openBreakdown.id)}
+                className="text-sm text-red-600 hover:underline dark:text-red-400"
+              >
+                Delete Plan
+              </button>
+            </div>
           </div>
+          <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">
+            Created {formatDateTime(openBreakdown.created_at)} · Last updated {formatDateTime(openBreakdown.updated_at)}
+          </p>
           {slotsLoading ? (
             <p className="text-slate-400 dark:text-slate-500">Loading...</p>
           ) : (

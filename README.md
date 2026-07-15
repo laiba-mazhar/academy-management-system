@@ -15,12 +15,18 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
 4. Create the **first admin account** manually (there's no admin yet to create one via the app):
    - Auth → Users → Add user → set an email + password, confirm email.
    - In the SQL Editor: `insert into profiles (id, role, full_name, email) values ('<the new user''s UUID>', 'admin', 'Your Name', 'admin@example.com');`
-5. Deploy the two Edge Functions so admins can create/delete teacher accounts from the UI:
+5. Deploy the Edge Functions so admins can create/delete teacher accounts and send real fee-reminder emails from the UI:
    ```
    supabase functions deploy create-teacher
    supabase functions deploy delete-teacher
+   supabase functions deploy send-fee-reminder
    ```
-   (Requires the Supabase CLI, logged in and linked to your project — `npx supabase login` then `npx supabase link`. Both functions read `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` from the Supabase-managed function environment automatically, and both send CORS headers so they work when called from the browser.) Everything else in the app works without these — only "Add Teacher" and "Delete Teacher" on the Teachers page depend on them.
+   (Requires the Supabase CLI, logged in and linked to your project — `npx supabase login` then `npx supabase link`. All three read `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` from the Supabase-managed function environment automatically, and all send CORS headers so they work when called from the browser.) Everything else in the app works without these — only "Add Teacher", "Delete Teacher", and "Send Reminder" (Fees page) depend on them.
+6. For real fee-reminder emails, sign up at https://resend.com (free tier: 3,000 emails/month) and create an API key, then set it as a function secret:
+   ```
+   supabase secrets set RESEND_API_KEY=your-resend-api-key
+   ```
+   **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Al Maktab Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
 
 ## Running the app
 
@@ -41,7 +47,7 @@ Then sign in with the admin account created above at `/login`.
 - **Attendance** (`/admin/attendance`, `/teacher/attendance`): a **Students / Teachers** toggle (admin only) switches between marking student attendance (one screen per class, any date, defaulters view against a configurable threshold, print + PDF download) and marking **teacher/staff attendance** (mark present/absent/late per teacher for any date, with a per-teacher history view).
 - **Fees** (`/admin/fees`): two tabs —
   - **Fee Overview**: every enrolled student with this-month status, lifetime total paid, and lifetime total remaining, filterable by class/category/status; click a row for that student's full payment history and a receipt for any past month.
-  - **Monthly Invoices**: the original per-month workflow — generate invoices from each student's fee (override or class default), mark paid, send a (mocked) reminder, automatic overdue flagging, printable receipts.
+  - **Monthly Invoices**: the original per-month workflow — generate invoices from each student's fee (override or class default), mark paid, **send a real fee-reminder email** to the guardian on file via Resend (see setup step 6 above), automatic overdue flagging, printable receipts.
 - **Fee Challans** (`/admin/fee-challans`): per-student view showing admission-fee and security-fee status (click to toggle paid/unpaid) and an editable monthly fee; "Generate Challan" produces a printable voucher for a chosen month listing tuition + any unpaid admission/security fee + total due.
 - **Question Bank / Exams / Marks Entry** — **teacher-only** (`/teacher/questions`, `/teacher/exams`): questions organized by subject/chapter, exam paper assembly and print, and marks entry with automatic percentage. Admins no longer have these in their nav — their view into results is the student report (see Students, above).
 - **Course Breakdown** — a pacing planner. Teachers (`/teacher/course-breakdown`) pick a subject, total chapter count, start/end dates, and a weekly/biweekly/monthly interval; the app generates dated slots where the teacher fills in which chapters they'll cover and checks them off as done. Admins (`/admin/course-breakdown`) get a read-only list of every teacher's plans by subject/class, clickable to view the full schedule and completion status.

@@ -92,12 +92,18 @@ export function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const studentById = useMemo(() => new Map(students.map((s) => [s.id, s])), [students])
   const examById = useMemo(() => new Map(exams.map((e) => [e.id, e])), [exams])
 
   const enrolledCount = students.filter((s) => s.enrollment_status === 'enrolled').length
 
   const monthInvoices = invoices.filter((i) => i.month === currentMonth)
+  const monthFeeRows = useMemo(() => {
+    const invoiceByStudent = new Map(monthInvoices.map((i) => [i.student_id, i]))
+    return students
+      .filter((s) => s.enrollment_status === 'enrolled')
+      .map((s) => ({ student: s, invoice: invoiceByStudent.get(s.id) ?? null }))
+      .sort((a, b) => a.student.full_name.localeCompare(b.student.full_name))
+  }, [students, monthInvoices])
   const collectedThisMonth = monthInvoices.filter((i) => i.status === 'paid').reduce((sum, i) => sum + i.amount, 0)
   const dueThisMonth = monthInvoices
     .filter((i) => i.status === 'unpaid' || i.status === 'overdue')
@@ -133,6 +139,28 @@ export function AdminDashboard() {
       })
       .filter((row) => row.avgPercent > 0 || row.passRate > 0)
   }, [examResults, examById, classes])
+
+  const performanceByExamType = useMemo(() => {
+    const byName = new Map<string, { obtainedSum: number; totalSum: number; passCount: number; count: number }>()
+    for (const r of examResults) {
+      const exam = examById.get(r.exam_id)
+      if (!exam) continue
+      const entry = byName.get(exam.name) ?? { obtainedSum: 0, totalSum: 0, passCount: 0, count: 0 }
+      entry.obtainedSum += r.marks_obtained
+      entry.totalSum += exam.total_marks
+      entry.count += 1
+      if (percentage(r.marks_obtained, exam.total_marks) >= PASS_THRESHOLD) entry.passCount += 1
+      byName.set(exam.name, entry)
+    }
+    return Array.from(byName.entries())
+      .map(([name, entry]) => ({
+        name,
+        avgPercent: percentage(entry.obtainedSum, entry.totalSum),
+        passRate: Math.round((entry.passCount / entry.count) * 1000) / 10,
+        studentCount: entry.count,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+  }, [examResults, examById])
 
   const attendanceByClass = useMemo(() => {
     const byClass = new Map<string, { present: number; total: number }>()
@@ -360,6 +388,41 @@ export function AdminDashboard() {
               </ResponsiveContainer>
             )}
           </div>
+
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 lg:col-span-2">
+            <p className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-100">Results by Exam Type</p>
+            <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">
+              Combined across every subject and class sitting each exam (Mid 1, Mid 2, Final, etc.)
+            </p>
+            {performanceByExamType.length === 0 ? (
+              <p className="py-16 text-center text-sm text-slate-400 dark:text-slate-500">No exam results recorded yet.</p>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={performanceByExamType}>
+                    <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
+                    <XAxis dataKey="name" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
+                    <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
+                    <Tooltip formatter={(v: number) => `${v}%`} />
+                    <Legend />
+                    <Bar dataKey="avgPercent" fill={CATEGORICAL[2]} radius={[4, 4, 0, 0]} name="Average %" />
+                    <Bar dataKey="passRate" fill={CATEGORICAL[3]} radius={[4, 4, 0, 0]} name={`Pass Rate (≥${PASS_THRESHOLD}%)`} />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {performanceByExamType.map((row) => (
+                    <div key={row.name} className="rounded-lg border border-slate-100 dark:border-slate-700/60 px-3 py-2">
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{row.name}</p>
+                      <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                        Avg {row.avgPercent}% · Pass {row.passRate}%
+                      </p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">{row.studentCount} result(s)</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -449,31 +512,49 @@ export function AdminDashboard() {
       </div>
 
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-        <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Live Fee Status — {formatMonth(currentMonth)}</p>
-        {monthInvoices.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500">No invoices generated for this month yet. Go to Fees to generate them.</p>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Live Fee Status — {formatMonth(currentMonth)}</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">{monthFeeRows.length} enrolled students</p>
+        </div>
+        {monthFeeRows.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">No enrolled students yet.</p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 dark:border-slate-700 text-xs uppercase text-slate-500 dark:text-slate-400">
-              <tr>
-                <th className="px-2 py-2">Student</th>
-                <th className="px-2 py-2">Amount</th>
-                <th className="px-2 py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {monthInvoices.slice(0, 10).map((inv) => (
-                <tr key={inv.id} className="border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-                  <td className="px-2 py-2 font-medium text-slate-800 dark:text-slate-100">{studentById.get(inv.student_id)?.full_name ?? '—'}</td>
-                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{formatCurrency(inv.amount)}</td>
-                  <td className="px-2 py-2 capitalize text-slate-600 dark:text-slate-300">{inv.status}</td>
+          <div className="max-h-96 overflow-y-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 border-b border-slate-200 bg-white text-xs uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                <tr>
+                  <th className="px-2 py-2">Student</th>
+                  <th className="px-2 py-2">Amount</th>
+                  <th className="px-2 py-2">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {monthInvoices.length > 10 && (
-          <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">Showing 10 of {monthInvoices.length}. See the Fees page for the full list.</p>
+              </thead>
+              <tbody>
+                {monthFeeRows.map(({ student, invoice }) => (
+                  <tr key={student.id} className="border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
+                    <td className="px-2 py-2 font-medium text-slate-800 dark:text-slate-100">{student.full_name}</td>
+                    <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{invoice ? formatCurrency(invoice.amount) : '—'}</td>
+                    <td className="px-2 py-2">
+                      {invoice ? (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                            invoice.status === 'paid'
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                              : invoice.status === 'overdue'
+                                ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                                : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+                          }`}
+                        >
+                          {invoice.status}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400 dark:text-slate-500">Not generated</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

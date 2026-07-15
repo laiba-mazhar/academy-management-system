@@ -4,8 +4,8 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Input'
-import { currentMonthValue, formatCurrency, formatDate, formatMonth, monthValueToDate, todayLocalDate } from '@/lib/utils'
-import { friendlyError } from '@/lib/errors'
+import { currentMonthValue, formatCurrency, formatDate, formatMonth, monthValueToDate, shiftMonthValue, todayLocalDate } from '@/lib/utils'
+import { friendlyError, edgeFunctionError } from '@/lib/errors'
 import type { Class, Invoice, Student } from '@/types/database'
 
 export function FeesPage() {
@@ -23,6 +23,7 @@ export function FeesPage() {
   const [overviewStatusFilter, setOverviewStatusFilter] = useState('all')
   const [receiptFor, setReceiptFor] = useState<Invoice | null>(null)
   const [historyFor, setHistoryFor] = useState<Student | null>(null)
+  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null)
 
   const month = monthValueToDate(monthValue)
   const currentMonth = monthValueToDate(currentMonthValue())
@@ -160,15 +161,21 @@ export function FeesPage() {
       show('No guardian email on file for this student.', 'error')
       return
     }
-    const { error } = await supabase
-      .from('invoices')
-      .update({ reminder_sent_at: new Date().toISOString() })
-      .eq('id', invoice.id)
+    setSendingReminderId(invoice.id)
+    const { data, error } = await supabase.functions.invoke('send-fee-reminder', {
+      body: { invoiceId: invoice.id },
+    })
+    setSendingReminderId(null)
     if (error) {
-      show(error.message, 'error')
+      show(await edgeFunctionError(error, 'Failed to send reminder.'), 'error')
       return
     }
-    show(`Reminder logged (mock) — would email ${student.guardian_email}.`)
+    const result = data as { error?: string; success?: boolean }
+    if (result?.error) {
+      show(result.error, 'error')
+      return
+    }
+    show(`Reminder emailed to ${student.guardian_email}.`)
     load()
   }
 
@@ -319,12 +326,18 @@ export function FeesPage() {
       ) : (
         <div className="space-y-4">
           <div className="no-print flex items-center justify-end gap-2">
+            <Button variant="secondary" onClick={() => setMonthValue(shiftMonthValue(monthValue, -1))} aria-label="Previous month">
+              ‹
+            </Button>
             <input
               type="month"
               value={monthValue}
               onChange={(e) => setMonthValue(e.target.value)}
               className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
             />
+            <Button variant="secondary" onClick={() => setMonthValue(shiftMonthValue(monthValue, 1))} aria-label="Next month">
+              ›
+            </Button>
             <Button onClick={handleGenerate} disabled={generating}>
               {generating ? 'Generating...' : 'Generate Invoices'}
             </Button>
@@ -426,8 +439,12 @@ export function FeesPage() {
                               <button onClick={() => markPaid(inv)} className="mr-3 text-sm text-brand-600 hover:underline">
                                 Mark Paid
                               </button>
-                              <button onClick={() => sendReminder(inv)} className="mr-3 text-sm text-amber-600 hover:underline">
-                                Send Reminder
+                              <button
+                                onClick={() => sendReminder(inv)}
+                                disabled={sendingReminderId === inv.id}
+                                className="mr-3 text-sm text-amber-600 hover:underline disabled:opacity-50"
+                              >
+                                {sendingReminderId === inv.id ? 'Sending...' : 'Send Reminder'}
                               </button>
                             </>
                           )}
@@ -481,6 +498,12 @@ export function FeesPage() {
                 <span className="text-slate-500 dark:text-slate-400">Payment Date</span>
                 <span>{formatDate(receiptFor.payment_date)}</span>
               </div>
+              {receiptFor.due_date && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">Due Date</span>
+                  <span>{formatDate(receiptFor.due_date)}</span>
+                </div>
+              )}
             </div>
           </div>
           <div className="no-print mt-6 flex justify-end gap-2">

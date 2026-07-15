@@ -11,6 +11,17 @@ export function formatDate(dateStr: string | null): string {
   })
 }
 
+export function formatDateTime(timestamp: string | null): string {
+  if (!timestamp) return '—'
+  return new Date(timestamp).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 export function formatMonth(dateStr: string): string {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
 }
@@ -26,6 +37,15 @@ export function currentMonthValue(): string {
 
 export function monthValueToDate(monthValue: string): string {
   return `${monthValue}-01`
+}
+
+// Shifts a "YYYY-MM" value by whole months (negative to go back) — powers
+// one-click prev/next navigation instead of relying on the native month
+// picker's fiddly calendar popup.
+export function shiftMonthValue(monthValue: string, delta: number): string {
+  const [year, month] = monthValue.split('-').map(Number)
+  const d = new Date(year, month - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
 // Local calendar date (YYYY-MM-DD), not UTC — new Date().toISOString() shifts

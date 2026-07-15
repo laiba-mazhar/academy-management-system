@@ -1,29 +1,31 @@
-// Validated categorical/sequential/status palette — see the dataviz skill's
-// references/palette.md. Fixed order; never cycle or reassign per filter.
+// Categorical/sequential/status palette, tied to the maroon/cream/gold brand
+// (see tailwind.config.js brand/cream/gold scales). Fixed order; never cycle
+// or reassign per filter. Hues are kept far enough apart to stay
+// distinguishable even though they're pulled toward the warm brand family.
 export const CATEGORICAL = [
-  '#2a78d6', // blue
-  '#1baf7a', // aqua
-  '#eda100', // yellow
-  '#008300', // green
-  '#4a3aa7', // violet
-  '#e34948', // red
-  '#e87ba4', // magenta
-  '#eb6834', // orange
+  '#932e3e', // maroon (brand-500)
+  '#c99a3a', // gold (gold-500)
+  '#2f6e6a', // deep teal
+  '#c4622d', // burnt orange
+  '#3c4a7a', // indigo
+  '#57762b', // olive green
+  '#8a4a6b', // plum
+  '#45586b', // slate blue
 ]
 
-export const SEQUENTIAL_BLUE = '#2a78d6'
+export const SEQUENTIAL_BLUE = '#932e3e'
 
 export const STATUS = {
-  good: '#0ca30c',
-  warning: '#fab219',
-  serious: '#ec835a',
-  critical: '#d03b3b',
+  good: '#3f7d3a',
+  warning: '#c99a3a',
+  serious: '#c4622d',
+  critical: '#a3283a',
 }
 
 export const CHART_INK = {
-  primary: '#0b0b0b',
-  secondary: '#52514e',
-  muted: '#898781',
-  gridline: '#e1e0d9',
-  baseline: '#c3c2b7',
+  primary: '#241713',
+  secondary: '#5c4a42',
+  muted: '#8f7d73',
+  gridline: '#e8ddd0',
+  baseline: '#d3c2ac',
 }

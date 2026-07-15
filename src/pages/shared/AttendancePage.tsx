@@ -19,8 +19,12 @@ function todayStr(): string {
 export function AttendancePage() {
   const { profile } = useAuth()
   const { show } = useToast()
-  const [entity, setEntity] = useState<'students' | 'teachers'>('students')
-  const [tab, setTab] = useState<'mark' | 'history'>('mark')
+  // Admins don't mark student attendance — that's a teacher's job. Admins land
+  // on the Teachers view; if they do switch to Students, they only get the
+  // read-only Defaulters tab, never Mark Attendance.
+  const isAdmin = profile?.role === 'admin'
+  const [entity, setEntity] = useState<'students' | 'teachers'>(isAdmin ? 'teachers' : 'students')
+  const [tab, setTab] = useState<'mark' | 'history'>(isAdmin ? 'history' : 'mark')
   const [classes, setClasses] = useState<Class[]>([])
   const [classId, setClassId] = useState('')
   const [date, setDate] = useState(todayStr())
@@ -183,7 +187,11 @@ export function AttendancePage() {
         <div>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Attendance</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {entity === 'students' ? 'Mark daily attendance and review defaulters.' : "Mark and review teachers' attendance."}
+            {entity === 'students'
+              ? isAdmin
+                ? 'Review student attendance and defaulters — teachers mark daily attendance.'
+                : 'Mark daily attendance and review defaulters.'
+              : "Mark and review teachers' attendance."}
           </p>
         </div>
         <div className="no-print flex items-center gap-3">
@@ -205,12 +213,14 @@ export function AttendancePage() {
           )}
           {entity === 'students' && (
             <div className="flex gap-2 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-800">
-              <button
-                onClick={() => setTab('mark')}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === 'mark' ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}
-              >
-                Mark Attendance
-              </button>
+              {!isAdmin && (
+                <button
+                  onClick={() => setTab('mark')}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === 'mark' ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}
+                >
+                  Mark Attendance
+                </button>
+              )}
               <button
                 onClick={() => setTab('history')}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === 'history' ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}

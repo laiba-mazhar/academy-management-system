@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Modal } from '@/components/ui/Modal'
-import { formatDate } from '@/lib/utils'
+import { Field, Select } from '@/components/ui/Input'
+import { formatDate, formatDateTime } from '@/lib/utils'
 import type { Class, CourseBreakdown, CourseBreakdownSlot, Subject } from '@/types/database'
 
 type TeacherOption = { id: string; full_name: string }
@@ -17,6 +18,9 @@ export function CourseBreakdownOverviewPage() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [slots, setSlots] = useState<CourseBreakdownSlot[]>([])
   const [slotsLoading, setSlotsLoading] = useState(false)
+  const [teacherFilter, setTeacherFilter] = useState('all')
+  const [classFilter, setClassFilter] = useState('all')
+  const [subjectFilter, setSubjectFilter] = useState('all')
 
   useEffect(() => {
     async function load() {
@@ -41,6 +45,16 @@ export function CourseBreakdownOverviewPage() {
   const subjectById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
   const teacherById = useMemo(() => new Map(teachers.map((t) => [t.id, t])), [teachers])
+
+  const filteredBreakdowns = useMemo(() => {
+    return breakdowns.filter((b) => {
+      const subject = subjectById.get(b.subject_id)
+      if (subjectFilter !== 'all' && b.subject_id !== subjectFilter) return false
+      if (classFilter !== 'all' && subject?.class_id !== classFilter) return false
+      if (teacherFilter !== 'all' && subject?.teacher_id !== teacherFilter) return false
+      return true
+    })
+  }, [breakdowns, subjectById, subjectFilter, classFilter, teacherFilter])
 
   async function openDetail(id: string) {
     setOpenId(id)
@@ -67,11 +81,50 @@ export function CourseBreakdownOverviewPage() {
         </p>
       </div>
 
+      {breakdowns.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Teacher">
+            <Select value={teacherFilter} onChange={(e) => setTeacherFilter(e.target.value)}>
+              <option value="all">All teachers</option>
+              {teachers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.full_name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Class">
+            <Select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
+              <option value="all">All classes</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Subject">
+            <Select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
+              <option value="all">All subjects</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({classById.get(s.class_id)?.name ?? '?'})
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      )}
+
       {loading ? (
         <p className="text-slate-400 dark:text-slate-500">Loading...</p>
       ) : breakdowns.length === 0 ? (
         <p className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center text-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-500">
           No teachers have submitted a course breakdown plan yet.
+        </p>
+      ) : filteredBreakdowns.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center text-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-500">
+          No plans match the selected filters.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
@@ -87,7 +140,7 @@ export function CourseBreakdownOverviewPage() {
               </tr>
             </thead>
             <tbody>
-              {breakdowns.map((b) => {
+              {filteredBreakdowns.map((b) => {
                 const subject = subjectById.get(b.subject_id)
                 return (
                   <tr
@@ -130,6 +183,9 @@ export function CourseBreakdownOverviewPage() {
             {formatDate(openBreakdown.start_date)} – {formatDate(openBreakdown.end_date)} ·{' '}
             {openBreakdown.total_chapters} chapters · {openBreakdown.planner_type}
           </div>
+          <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">
+            Created {formatDateTime(openBreakdown.created_at)} · Last updated {formatDateTime(openBreakdown.updated_at)}
+          </p>
           {slotsLoading ? (
             <p className="text-slate-400 dark:text-slate-500">Loading...</p>
           ) : (

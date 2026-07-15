@@ -64,6 +64,7 @@ export interface Invoice {
   amount: number
   status: InvoiceStatus
   payment_date: string | null
+  due_date: string | null
   reminder_sent_at: string | null
   created_at: string
 }
@@ -160,6 +161,7 @@ export interface CourseBreakdown {
   end_date: string
   created_by: string | null
   created_at: string
+  updated_at: string
 }
 
 export interface CourseBreakdownSlot {

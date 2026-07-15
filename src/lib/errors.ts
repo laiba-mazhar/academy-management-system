@@ -16,3 +16,20 @@ export function friendlyError(message: string): string {
   }
   return message
 }
+
+// supabase-js's functions.invoke() only gives a generic "Edge Function
+// returned a non-2xx status code" on failure — the function's actual JSON
+// error body (e.g. what Resend/Postgres actually rejected) is on
+// `error.context`, a Response that has to be read separately.
+export async function edgeFunctionError(error: unknown, fallback: string): Promise<string> {
+  const context = (error as { context?: unknown } | null)?.context
+  if (context && typeof (context as Response).json === 'function') {
+    try {
+      const body = await (context as Response).clone().json()
+      if (body?.error) return body.error as string
+    } catch {
+      // context wasn't JSON — fall through to the generic message below.
+    }
+  }
+  return (error as Error)?.message ?? fallback
+}

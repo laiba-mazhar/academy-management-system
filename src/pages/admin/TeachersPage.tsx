@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input } from '@/components/ui/Input'
 import { generateTempPassword, formatCurrency } from '@/lib/utils'
+import { edgeFunctionError } from '@/lib/errors'
 import type { Class, Profile, Subject, Teacher } from '@/types/database'
 
 type TeacherRow = Teacher & Pick<Profile, 'full_name' | 'email' | 'phone'>
@@ -104,9 +105,7 @@ export function TeachersPage() {
     })
     setCreating(false)
     if (error) {
-      setCreateError(
-        `${error.message}. Make sure the "create-teacher" Edge Function is deployed (see README).`
-      )
+      setCreateError(await edgeFunctionError(error, 'Failed to create teacher account.'))
       return
     }
     if ((data as { error?: string })?.error) {
@@ -155,7 +154,7 @@ export function TeachersPage() {
     })
     setDeleting(false)
     if (error) {
-      show(`${error.message}. Make sure the "delete-teacher" Edge Function is deployed.`, 'error')
+      show(await edgeFunctionError(error, 'Failed to delete teacher account.'), 'error')
       return
     }
     show('Teacher account deleted.')
