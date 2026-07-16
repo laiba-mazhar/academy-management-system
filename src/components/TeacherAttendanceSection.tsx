@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Field, Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/EmptyState'
+import { DocumentLetterhead } from '@/components/DocumentLetterhead'
 import { daysAgoLocalDate, formatDate, todayLocalDate } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import type { AttendanceStatus, Subject, TeacherAttendance, TeacherStatus } from '@/types/database'
@@ -163,7 +164,7 @@ export function TeacherAttendanceSection() {
 
       <div className="print-area overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
         <div className="hidden border-b px-4 py-2 print:block">
-          <p className="font-semibold">Teacher Attendance — {formatDate(date)}</p>
+          <DocumentLetterhead subtitle={`Teacher Attendance · ${formatDate(date)}`} />
         </div>
         {loading ? (
           <p className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">Loading...</p>

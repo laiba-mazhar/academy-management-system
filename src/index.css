@@ -2,6 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Recharts renders its Tooltip as a plain div with inline styles, so it can't
+   pick up Tailwind's dark: classes directly — these CSS variables let the
+   tooltip (and the bar/line hover highlight) still follow the app's theme. */
+:root {
+  --tooltip-bg: #fdfbf5;
+  --tooltip-border: #e6a7b0;
+  --tooltip-text: #241713;
+  --tooltip-cursor: rgba(147, 46, 62, 0.08);
+}
+
+.dark {
+  --tooltip-bg: #1e293b;
+  --tooltip-border: #475569;
+  --tooltip-text: #f1f5f9;
+  --tooltip-cursor: rgba(217, 144, 154, 0.12);
+}
+
 @media print {
   @page {
     margin: 1.5cm;

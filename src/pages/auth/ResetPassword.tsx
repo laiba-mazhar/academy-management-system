@@ -1,8 +1,16 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { ThemeToggle } from '@/components/ThemeToggle'
+
+// A password-recovery link (from "Forgot password?") lands here the same way
+// a forced first-login reset does, but the account's must_reset_password flag
+// is false in that case — so a separate signal is needed to keep this page
+// open instead of bouncing the user straight to their dashboard.
+function hasRecoveryHash(): boolean {
+  return typeof window !== 'undefined' && window.location.hash.includes('type=recovery')
+}
 
 export function ResetPassword() {
   const { session, profile, loading, refreshProfile, signOut } = useAuth()
@@ -10,12 +18,20 @@ export function ResetPassword() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [isRecovery, setIsRecovery] = useState(hasRecoveryHash())
 
-  if (!loading && (!session || !profile)) {
+  useEffect(() => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setIsRecovery(true)
+    })
+    return () => listener.subscription.unsubscribe()
+  }, [])
+
+  if (!loading && (!session || !profile) && !isRecovery) {
     return <Navigate to="/login" replace />
   }
 
-  if (!loading && profile && !profile.must_reset_password) {
+  if (!loading && profile && !profile.must_reset_password && !isRecovery) {
     return <Navigate to={profile.role === 'admin' ? '/admin' : '/teacher'} replace />
   }
 
@@ -58,7 +74,9 @@ export function ResetPassword() {
       <div className="w-full max-w-sm rounded-2xl border border-gold-400/30 bg-white p-8 shadow-lg dark:border-gold-500/20 dark:bg-slate-800">
         <h1 className="mb-1 text-xl font-semibold text-brand-800 dark:text-cream-50">Set a new password</h1>
         <p className="mb-6 text-sm text-slate-500 dark:text-slate-400">
-          This is your first login (or an admin reset your password). Choose a new password to continue.
+          {isRecovery && !profile?.must_reset_password
+            ? 'Choose a new password to finish resetting your account.'
+            : 'This is your first login, or an admin reset your password. Choose a new password to continue.'}
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

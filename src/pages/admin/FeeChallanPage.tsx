@@ -4,6 +4,7 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Input'
+import { DocumentLetterhead } from '@/components/DocumentLetterhead'
 import { currentMonthValue, effectiveFee, formatCurrency, formatDate, formatMonth, monthValueToDate, netInvoiceAmount, shiftMonthValue, todayLocalDate } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import type { Class, Invoice, Student } from '@/types/database'
@@ -531,10 +532,7 @@ export function FeeChallanPage() {
           ) : (
             <>
               <div className="print-area space-y-4">
-                <div className="text-center">
-                  <p className="text-lg font-semibold">Al Maktab Educational Institute</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Fee Challan</p>
-                </div>
+                <DocumentLetterhead subtitle="Fee Challan" />
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-500 dark:text-slate-400">Student</span>

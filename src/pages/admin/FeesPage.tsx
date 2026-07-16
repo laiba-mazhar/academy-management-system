@@ -4,6 +4,7 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Input'
+import { DocumentLetterhead } from '@/components/DocumentLetterhead'
 import { currentMonthValue, effectiveFee, formatCurrency, formatDate, formatMonth, monthValueToDate, netInvoiceAmount, shiftMonthValue, todayLocalDate } from '@/lib/utils'
 import { friendlyError, edgeFunctionError } from '@/lib/errors'
 import type { Class, Invoice, Student } from '@/types/database'
@@ -384,7 +385,7 @@ export function FeesPage() {
 
           <div className={receiptFor ? '' : 'print-area'}>
             <div className="hidden print:block">
-              <p className="font-semibold">Fee Status — {formatMonth(month)}</p>
+              <DocumentLetterhead subtitle={`Fee Status · ${formatMonth(month)}`} />
             </div>
             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
               <table className="w-full text-left text-sm">
@@ -465,10 +466,7 @@ export function FeesPage() {
       {receiptFor && (
         <Modal title="Fee Receipt" onClose={() => setReceiptFor(null)}>
           <div className="print-area space-y-4">
-            <div className="text-center">
-              <p className="text-lg font-semibold">Al Maktab Educational Institute</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Fee Receipt</p>
-            </div>
+            <DocumentLetterhead subtitle="Fee Receipt" />
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Receipt No.</span>

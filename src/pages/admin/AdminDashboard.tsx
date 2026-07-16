@@ -15,7 +15,8 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { EmptyState } from '@/components/EmptyState'
-import { CATEGORICAL, CHART_INK, SEQUENTIAL_BLUE, STATUS } from '@/lib/chartColors'
+import { Select } from '@/components/ui/Input'
+import { CATEGORICAL, CHART_INK, SEQUENTIAL_BLUE, STATUS, TOOLTIP_CURSOR, TOOLTIP_STYLE } from '@/lib/chartColors'
 import { currentMonthValue, formatCurrency, formatMonth, monthValueToDate, netInvoiceAmount, percentage } from '@/lib/utils'
 import type { Attendance, Class, Exam, ExamResult, Invoice, Salary, Student } from '@/types/database'
 
@@ -41,6 +42,8 @@ export function AdminDashboard() {
   const [examResults, setExamResults] = useState<ExamResult[]>([])
   const [salaries, setSalaries] = useState<Salary[]>([])
   const [loading, setLoading] = useState(true)
+  const [chartClassFilter, setChartClassFilter] = useState('all')
+  const [chartCategoryFilter, setChartCategoryFilter] = useState('all')
 
   const currentMonth = monthValueToDate(currentMonthValue())
 
@@ -72,6 +75,20 @@ export function AdminDashboard() {
   }, [])
 
   const examById = useMemo(() => new Map(exams.map((e) => [e.id, e])), [exams])
+  const categories = useMemo(
+    () => [...new Set(classes.map((c) => c.category).filter((c): c is string => !!c))].sort(),
+    [classes]
+  )
+  const filteredClasses = useMemo(
+    () =>
+      classes.filter((c) => {
+        if (chartClassFilter !== 'all' && c.id !== chartClassFilter) return false
+        if (chartCategoryFilter !== 'all' && c.category !== chartCategoryFilter) return false
+        return true
+      }),
+    [classes, chartClassFilter, chartCategoryFilter]
+  )
+  const filteredClassIds = useMemo(() => new Set(filteredClasses.map((c) => c.id)), [filteredClasses])
 
   const enrolledCount = students.filter((s) => s.enrollment_status === 'enrolled').length
   const newAdmissionsThisMonth = useMemo(
@@ -102,7 +119,7 @@ export function AdminDashboard() {
     const byClass = new Map<string, { obtainedSum: number; totalSum: number; passCount: number; count: number }>()
     for (const r of examResults) {
       const exam = examById.get(r.exam_id)
-      if (!exam) continue
+      if (!exam || !filteredClassIds.has(exam.class_id)) continue
       const entry = byClass.get(exam.class_id) ?? { obtainedSum: 0, totalSum: 0, passCount: 0, count: 0 }
       entry.obtainedSum += r.marks_obtained
       entry.totalSum += exam.total_marks
@@ -110,7 +127,7 @@ export function AdminDashboard() {
       if (percentage(r.marks_obtained, exam.total_marks) >= PASS_THRESHOLD) entry.passCount += 1
       byClass.set(exam.class_id, entry)
     }
-    return classes
+    return filteredClasses
       .map((c) => {
         const entry = byClass.get(c.id)
         if (!entry) return { class: c.name, avgPercent: 0, passRate: 0 }
@@ -121,13 +138,13 @@ export function AdminDashboard() {
         }
       })
       .filter((row) => row.avgPercent > 0 || row.passRate > 0)
-  }, [examResults, examById, classes])
+  }, [examResults, examById, filteredClasses, filteredClassIds])
 
   const performanceByExamType = useMemo(() => {
     const byName = new Map<string, { obtainedSum: number; totalSum: number; passCount: number; count: number }>()
     for (const r of examResults) {
       const exam = examById.get(r.exam_id)
-      if (!exam) continue
+      if (!exam || !filteredClassIds.has(exam.class_id)) continue
       const entry = byName.get(exam.name) ?? { obtainedSum: 0, totalSum: 0, passCount: 0, count: 0 }
       entry.obtainedSum += r.marks_obtained
       entry.totalSum += exam.total_marks
@@ -143,23 +160,24 @@ export function AdminDashboard() {
         studentCount: entry.count,
       }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-  }, [examResults, examById])
+  }, [examResults, examById, filteredClassIds])
 
   const attendanceByClass = useMemo(() => {
     const byClass = new Map<string, { present: number; total: number }>()
     for (const a of attendance) {
+      if (!filteredClassIds.has(a.class_id)) continue
       const entry = byClass.get(a.class_id) ?? { present: 0, total: 0 }
       entry.total += 1
       if (a.status === 'present' || a.status === 'late') entry.present += 1
       byClass.set(a.class_id, entry)
     }
-    return classes
+    return filteredClasses
       .map((c) => {
         const entry = byClass.get(c.id)
         return { class: c.name, percent: entry ? percentage(entry.present, entry.total) : 0 }
       })
       .filter((row) => row.percent > 0)
-  }, [attendance, classes])
+  }, [attendance, filteredClasses, filteredClassIds])
 
   const monthSalaries = useMemo(() => salaries.filter((s) => s.month === currentMonth), [salaries, currentMonth])
   const salaryTotals = useMemo(() => {
@@ -270,7 +288,7 @@ export function AdminDashboard() {
                   <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
                   <XAxis dataKey="month" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
                   <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip {...TOOLTIP_STYLE} cursor={TOOLTIP_CURSOR} formatter={(v: number) => formatCurrency(v)} />
                   <Legend />
                   <Bar dataKey="revenue" fill={CATEGORICAL[0]} radius={[4, 4, 0, 0]} name="Revenue" />
                   <Bar dataKey="expense" fill={CATEGORICAL[5]} radius={[4, 4, 0, 0]} name="Salary Expense" />
@@ -285,11 +303,33 @@ export function AdminDashboard() {
                   <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
                   <XAxis dataKey="month" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
                   <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatCurrency(v)} />
                   <Line type="monotone" dataKey="profit" stroke={SEQUENTIAL_BLUE} strokeWidth={2} dot={{ r: 3 }} name="Profit" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              Filter charts below
+            </span>
+            <Select value={chartClassFilter} onChange={(e) => setChartClassFilter(e.target.value)} className="max-w-[180px]">
+              <option value="all">All classes</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+            <Select value={chartCategoryFilter} onChange={(e) => setChartCategoryFilter(e.target.value)} className="max-w-[180px]">
+              <option value="all">All categories</option>
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </Select>
           </div>
 
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
@@ -302,7 +342,7 @@ export function AdminDashboard() {
                   <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
                   <XAxis dataKey="class" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
                   <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                  <Tooltip formatter={(v: number) => `${v}%`} />
+                  <Tooltip {...TOOLTIP_STYLE} cursor={TOOLTIP_CURSOR} formatter={(v: number) => `${v}%`} />
                   <Legend />
                   <Bar dataKey="avgPercent" fill={CATEGORICAL[0]} radius={[4, 4, 0, 0]} name="Average %" />
                   <Bar dataKey="passRate" fill={CATEGORICAL[1]} radius={[4, 4, 0, 0]} name={`Pass Rate (≥${PASS_THRESHOLD}%)`} />
@@ -322,7 +362,7 @@ export function AdminDashboard() {
                     <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
                     <XAxis dataKey="class" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
                     <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                    <Tooltip formatter={(v: number) => `${v}%`} />
+                    <Tooltip {...TOOLTIP_STYLE} cursor={TOOLTIP_CURSOR} formatter={(v: number) => `${v}%`} />
                     <Bar dataKey="percent" fill={SEQUENTIAL_BLUE} radius={[4, 4, 0, 0]} name="Attendance %" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -341,7 +381,7 @@ export function AdminDashboard() {
                       <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
                       <XAxis dataKey="name" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
                       <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                      <Tooltip formatter={(v: number) => `${v}%`} />
+                      <Tooltip {...TOOLTIP_STYLE} cursor={TOOLTIP_CURSOR} formatter={(v: number) => `${v}%`} />
                       <Legend />
                       <Bar dataKey="avgPercent" fill={CATEGORICAL[2]} radius={[4, 4, 0, 0]} name="Average %" />
                       <Bar dataKey="passRate" fill={CATEGORICAL[3]} radius={[4, 4, 0, 0]} name={`Pass Rate (≥${PASS_THRESHOLD}%)`} />

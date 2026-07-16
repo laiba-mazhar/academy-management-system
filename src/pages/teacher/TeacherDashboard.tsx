@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Field, Input, Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/EmptyState'
-import { CATEGORICAL, CHART_INK, SEQUENTIAL_BLUE } from '@/lib/chartColors'
+import { CATEGORICAL, CHART_INK, SEQUENTIAL_BLUE, TOOLTIP_CURSOR, TOOLTIP_STYLE } from '@/lib/chartColors'
 import { DAY_NAMES, formatDate, percentage } from '@/lib/utils'
 import type { Attendance, Class, Exam, ExamResult, Student, Subject, Timetable } from '@/types/database'
 
@@ -37,6 +37,9 @@ export function TeacherDashboard() {
   const [exams, setExams] = useState<Exam[]>([])
   const [examResults, setExamResults] = useState<ExamResult[]>([])
   const [loading, setLoading] = useState(true)
+
+  const [chartClassFilter, setChartClassFilter] = useState('all')
+  const [chartSubjectFilter, setChartSubjectFilter] = useState('all')
 
   const [showRequest, setShowRequest] = useState(false)
   const [requestForm, setRequestForm] = useState({ name: '', class_id: '' })
@@ -80,23 +83,29 @@ export function TeacherDashboard() {
   const assignedClassIds = useMemo(() => new Set(subjects.map((s) => s.class_id)), [subjects])
   const myStudentCount = students.filter((s) => s.class_id && assignedClassIds.has(s.class_id)).length
 
+  const filteredClassIds = useMemo(() => {
+    if (chartClassFilter === 'all') return assignedClassIds
+    return new Set(assignedClassIds.has(chartClassFilter) ? [chartClassFilter] : [])
+  }, [assignedClassIds, chartClassFilter])
+
   const classStrength = useMemo(() => {
     const counts = new Map<string, number>()
     for (const s of students) {
-      if (s.class_id && assignedClassIds.has(s.class_id)) {
+      if (s.class_id && filteredClassIds.has(s.class_id)) {
         counts.set(s.class_id, (counts.get(s.class_id) ?? 0) + 1)
       }
     }
-    return [...assignedClassIds].map((classId) => ({
+    return [...filteredClassIds].map((classId) => ({
       class: classById.get(classId)?.name ?? 'Unknown',
       students: counts.get(classId) ?? 0,
     }))
-  }, [students, assignedClassIds, classById])
+  }, [students, filteredClassIds, classById])
 
   const attendanceTrend = useMemo(() => {
     const days = lastNDays(14)
     const byDay = new Map<string, { present: number; total: number }>()
     for (const a of attendance) {
+      if (!filteredClassIds.has(a.class_id)) continue
       const entry = byDay.get(a.date) ?? { present: 0, total: 0 }
       entry.total += 1
       if (a.status === 'present' || a.status === 'late') entry.present += 1
@@ -109,7 +118,7 @@ export function TeacherDashboard() {
         percent: entry ? percentage(entry.present, entry.total) : null,
       }
     })
-  }, [attendance])
+  }, [attendance, filteredClassIds])
 
   const examById = useMemo(() => new Map(exams.map((e) => [e.id, e])), [exams])
   const subjectById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
@@ -119,6 +128,8 @@ export function TeacherDashboard() {
     for (const r of examResults) {
       const exam = examById.get(r.exam_id)
       if (!exam) continue
+      if (!filteredClassIds.has(exam.class_id)) continue
+      if (chartSubjectFilter !== 'all' && exam.subject_id !== chartSubjectFilter) continue
       const entry = byExam.get(exam.id) ?? { obtained: 0, total: 0, passCount: 0, count: 0 }
       entry.obtained += r.marks_obtained
       entry.total += exam.total_marks
@@ -140,7 +151,7 @@ export function TeacherDashboard() {
           entered: entry.count,
         }
       })
-  }, [exams, examResults, examById, classById, subjectById])
+  }, [exams, examResults, examById, classById, subjectById, filteredClassIds, chartSubjectFilter])
 
   function openRequest() {
     setRequestForm({ name: '', class_id: [...assignedClassIds][0] ?? '' })
@@ -208,6 +219,28 @@ export function TeacherDashboard() {
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              Filter charts
+            </span>
+            <Select value={chartClassFilter} onChange={(e) => setChartClassFilter(e.target.value)} className="max-w-[180px]">
+              <option value="all">All my classes</option>
+              {[...assignedClassIds].map((classId) => (
+                <option key={classId} value={classId}>
+                  {classById.get(classId)?.name ?? classId}
+                </option>
+              ))}
+            </Select>
+            <Select value={chartSubjectFilter} onChange={(e) => setChartSubjectFilter(e.target.value)} className="max-w-[180px]">
+              <option value="all">All my subjects</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({classById.get(s.class_id)?.name ?? '?'})
+                </option>
+              ))}
+            </Select>
+          </div>
+
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
               <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Class Strength</p>
@@ -219,7 +252,7 @@ export function TeacherDashboard() {
                     <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
                     <XAxis dataKey="class" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
                     <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
-                    <Tooltip />
+                    <Tooltip {...TOOLTIP_STYLE} cursor={TOOLTIP_CURSOR} />
                     <Bar dataKey="students" fill={SEQUENTIAL_BLUE} radius={[4, 4, 0, 0]} name="Students" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -236,7 +269,7 @@ export function TeacherDashboard() {
                     <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
                     <XAxis dataKey="day" stroke={CHART_INK.muted} fontSize={11} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
                     <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                    <Tooltip formatter={(v) => (v === null || v === undefined ? 'No data' : `${v}%`)} />
+                    <Tooltip {...TOOLTIP_STYLE} formatter={(v) => (v === null || v === undefined ? 'No data' : `${v}%`)} />
                     <Line
                       type="monotone"
                       dataKey="percent"
@@ -262,7 +295,7 @@ export function TeacherDashboard() {
                       <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
                       <XAxis dataKey="exam" stroke={CHART_INK.muted} fontSize={11} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
                       <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                      <Tooltip formatter={(v: number) => `${v}%`} />
+                      <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => `${v}%`} />
                       <Line
                         type="monotone"
                         dataKey="avgPercent"

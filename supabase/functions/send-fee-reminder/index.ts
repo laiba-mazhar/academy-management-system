@@ -15,7 +15,7 @@ import { corsHeaders, jsonResponse } from '../_shared/cors.ts'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-const FROM_ADDRESS = Deno.env.get('REMINDER_FROM_ADDRESS') ?? 'Al Maktab Educational Institute <onboarding@resend.dev>'
+const FROM_ADDRESS = Deno.env.get('REMINDER_FROM_ADDRESS') ?? 'Maktab Educational Institute <onboarding@resend.dev>'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -91,16 +91,21 @@ Deno.serve(async (req) => {
   const dueLabel = invoice.due_date
     ? new Date(invoice.due_date + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
     : null
-  const amountLabel = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(invoice.amount)
+  const amountLabel = new Intl.NumberFormat('en-PK', {
+    style: 'currency',
+    currency: 'PKR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(invoice.amount)
 
   const html = `
     <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-      <h2 style="color: #7a1f2e;">Al Maktab Educational Institute</h2>
+      <h2 style="color: #7a1f2e;">Maktab Educational Institute</h2>
       <p>Dear ${student.guardian_name ?? 'Parent/Guardian'},</p>
       <p>This is a reminder that the fee for <strong>${student.full_name}</strong>${klass?.name ? ` (${klass.name})` : ''} for <strong>${monthLabel}</strong> is still outstanding.</p>
       <p><strong>Amount due:</strong> ${amountLabel}${dueLabel ? `<br/><strong>Due date:</strong> ${dueLabel}` : ''}</p>
       <p>Please arrange payment at your earliest convenience. If you've already paid, kindly disregard this message.</p>
-      <p>Thank you,<br/>Al Maktab Educational Institute</p>
+      <p>Thank you,<br/>Maktab Educational Institute</p>
     </div>
   `
 

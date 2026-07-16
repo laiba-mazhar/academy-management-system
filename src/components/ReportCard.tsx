@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { percentage, formatDate } from '@/lib/utils'
+import { DocumentLetterhead } from '@/components/DocumentLetterhead'
 import type { Exam, ExamResult, Student, Subject } from '@/types/database'
 
 export function ReportCard({
@@ -76,10 +77,7 @@ export function ReportCard({
 
   return (
     <div className={className}>
-      <div className="mb-4 text-center">
-        <p className="text-lg font-semibold">Al Maktab Educational Institute</p>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Student Report Card</p>
-      </div>
+      <DocumentLetterhead subtitle="Student Report Card" />
       <div className="mb-1 flex justify-between text-sm">
         <span>
           <span className="text-slate-500 dark:text-slate-400">Student:</span> <strong>{student.full_name}</strong>

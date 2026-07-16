@@ -30,3 +30,23 @@ export const CHART_INK = {
   gridline: '#e8ddd0',
   baseline: '#d3c2ac',
 }
+
+// Recharts' <Tooltip> renders a plain div with inline styles, so it can't see
+// Tailwind's dark: classes — these reference CSS variables (defined in
+// index.css, redefined under .dark) so the tooltip still follows the theme.
+// Spread onto every <Tooltip> alongside its own `formatter`.
+export const TOOLTIP_STYLE = {
+  contentStyle: {
+    backgroundColor: 'var(--tooltip-bg)',
+    border: '1px solid var(--tooltip-border)',
+    borderRadius: 8,
+    fontSize: 13,
+  },
+  labelStyle: { color: 'var(--tooltip-text)', fontWeight: 600 },
+  itemStyle: { color: 'var(--tooltip-text)' },
+}
+
+// Pass to <Tooltip cursor={TOOLTIP_CURSOR} /> inside a BarChart so the
+// hover-highlight rectangle behind the bars also follows the theme instead of
+// Recharts' default flat gray.
+export const TOOLTIP_CURSOR = { fill: 'var(--tooltip-cursor)' }

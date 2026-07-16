@@ -3,7 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
+import { Field, Input, Textarea } from '@/components/ui/Input'
+import { DocumentLetterhead } from '@/components/DocumentLetterhead'
 import { formatDate, percentage } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import type { Class, Exam, ExamQuestion, ExamResult, Question, Student, Subject } from '@/types/database'
@@ -22,6 +23,10 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   const [savedResults, setSavedResults] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [savingMarks, setSavingMarks] = useState(false)
+  const [showAddQuestion, setShowAddQuestion] = useState(false)
+  const [newQuestion, setNewQuestion] = useState({ question_text: '', marks: '', chapter: '' })
+  const [addQuestionError, setAddQuestionError] = useState<string | null>(null)
+  const [addingQuestion, setAddingQuestion] = useState(false)
 
   const marksDirty = JSON.stringify(results) !== JSON.stringify(savedResults)
 
@@ -123,6 +128,54 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     }
   }
 
+  // Lets a teacher add a question straight from the paper builder instead of
+  // detouring to the Question Bank page. It's saved into the same questions
+  // table (so it's reusable later) and immediately selected onto this paper.
+  async function handleAddQuestion() {
+    if (!exam) return
+    if (!newQuestion.question_text.trim()) {
+      setAddQuestionError('Question text is required.')
+      return
+    }
+    const marks = Number(newQuestion.marks)
+    if (Number.isNaN(marks) || marks <= 0) {
+      setAddQuestionError('Marks must be a positive number.')
+      return
+    }
+    setAddingQuestion(true)
+    const { data, error } = await supabase
+      .from('questions')
+      .insert({
+        subject_id: exam.subject_id,
+        class_id: exam.class_id,
+        chapter: newQuestion.chapter.trim() || null,
+        question_text: newQuestion.question_text.trim(),
+        marks,
+      })
+      .select()
+      .single()
+    if (error || !data) {
+      setAddingQuestion(false)
+      setAddQuestionError(friendlyError(error?.message ?? 'Failed to add question.'))
+      return
+    }
+    const question = data as Question
+    const { error: linkError } = await supabase
+      .from('exam_questions')
+      .insert({ exam_id: exam.id, question_id: question.id })
+    setAddingQuestion(false)
+    if (linkError) {
+      setAddQuestionError(friendlyError(linkError.message))
+      return
+    }
+    setQuestions((prev) => [question, ...prev])
+    setSelectedQuestionIds((prev) => new Set(prev).add(question.id))
+    setNewQuestion({ question_text: '', marks: '', chapter: '' })
+    setAddQuestionError(null)
+    setShowAddQuestion(false)
+    show('Question added to the bank and this paper.')
+  }
+
   async function handleSaveMarks() {
     if (!exam) return
     if (selectedMarksTotal !== exam.total_marks) {
@@ -220,9 +273,56 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                 {selectedMarksTotal !== exam.total_marks && ' — must match to save marks'}
               </p>
             </div>
+            {showAddQuestion ? (
+              <div className="space-y-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+                <Field label="Question text">
+                  <Textarea
+                    value={newQuestion.question_text}
+                    onChange={(e) => setNewQuestion({ ...newQuestion, question_text: e.target.value })}
+                    rows={2}
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Marks">
+                    <Input
+                      type="number"
+                      min="1"
+                      value={newQuestion.marks}
+                      onChange={(e) => setNewQuestion({ ...newQuestion, marks: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Chapter (optional)">
+                    <Input
+                      value={newQuestion.chapter}
+                      onChange={(e) => setNewQuestion({ ...newQuestion, chapter: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                {addQuestionError && <p className="text-sm text-red-600 dark:text-red-400">{addQuestionError}</p>}
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setShowAddQuestion(false)
+                      setAddQuestionError(null)
+                      setNewQuestion({ question_text: '', marks: '', chapter: '' })
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleAddQuestion} disabled={addingQuestion}>
+                    {addingQuestion ? 'Adding...' : 'Add to paper'}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button variant="secondary" onClick={() => setShowAddQuestion(true)}>
+                + Add a question manually
+              </Button>
+            )}
             {questions.length === 0 ? (
               <p className="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
-                No questions in the bank for this subject yet. Add some in Question Bank.
+                No questions in the bank for this subject yet. Add one above, or from the Question Bank page.
               </p>
             ) : (
               <div className="space-y-2">
@@ -256,10 +356,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
               </Button>
             </div>
             <div className="print-area rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6">
-              <div className="mb-6 text-center">
-                <p className="text-lg font-semibold">Al Maktab Educational Institute</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">Examination Paper</p>
-              </div>
+              <DocumentLetterhead subtitle="Examination Paper" />
               <div className="mb-4 flex justify-between text-sm">
                 <span>Class: {klass?.name}</span>
                 <span>Subject: {subject?.name}</span>

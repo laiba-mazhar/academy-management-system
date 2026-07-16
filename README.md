@@ -1,4 +1,4 @@
-# Al Maktab Educational Institute — Management System
+# Maktab Educational Institute — Management System
 
 React + Vite + TypeScript + Tailwind frontend, Supabase (Postgres + Auth + RLS) backend.
 
@@ -26,7 +26,7 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    ```
    supabase secrets set RESEND_API_KEY=your-resend-api-key
    ```
-   **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Al Maktab Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
+   **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Maktab Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
 
 ## Running the app
 
