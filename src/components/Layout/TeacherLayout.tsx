@@ -18,7 +18,7 @@ export function TeacherLayout() {
       <Sidebar title="Teacher" items={navItems} />
       <div className="flex flex-1 flex-col">
         <TopBar />
-        <main className="flex-1 bg-slate-50 p-6 dark:bg-slate-900">
+        <main className="flex-1 bg-cream-50 p-6 dark:bg-slate-900">
           <Outlet />
         </main>
       </div>
