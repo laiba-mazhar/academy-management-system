@@ -11,6 +11,7 @@ const navItems: NavItem[] = [
   { label: 'Attendance', to: '/admin/attendance' },
   { label: 'Fees', to: '/admin/fees' },
   { label: 'Fee Challans', to: '/admin/fee-challans' },
+  { label: 'Salaries', to: '/admin/salaries' },
   { label: 'Course Breakdown', to: '/admin/course-breakdown' },
 ]
 

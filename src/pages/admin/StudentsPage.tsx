@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select } from '@/components/ui/Input'
 import { StudentFullReport } from '@/components/StudentFullReport'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, isValidEmail, isValidPhone } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import type { Class, EnrollmentStatus, Student } from '@/types/database'
 
@@ -75,6 +75,7 @@ export function StudentsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const activeStudentCount = useMemo(() => students.filter((s) => s.enrollment_status !== 'left').length, [students])
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
   const categories = useMemo(
     () => [...new Set(classes.map((c) => c.category).filter((c): c is string => !!c))].sort(),
@@ -85,6 +86,9 @@ export function StudentsPage() {
     if (search && !s.full_name.toLowerCase().includes(search.toLowerCase())) return false
     if (classFilter !== 'all' && s.class_id !== classFilter) return false
     if (categoryFilter !== 'all' && classById.get(s.class_id ?? '')?.category !== categoryFilter) return false
+    // Students who left are hidden from the default/"all" view — pick the
+    // "Left" filter explicitly to see them, keeping the current list clean.
+    if (statusFilter === 'all' && s.enrollment_status === 'left') return false
     if (statusFilter !== 'all' && s.enrollment_status !== statusFilter) return false
     return true
   })
@@ -130,6 +134,18 @@ export function StudentsPage() {
   async function handleSave() {
     if (!form.full_name.trim()) {
       setError('Student name is required.')
+      return
+    }
+    if (form.contact_phone.trim() && !isValidPhone(form.contact_phone.trim())) {
+      setError('Student contact phone must be a valid phone number (7-15 digits).')
+      return
+    }
+    if (form.guardian_phone.trim() && !isValidPhone(form.guardian_phone.trim())) {
+      setError('Guardian phone must be a valid phone number (7-15 digits).')
+      return
+    }
+    if (form.guardian_email.trim() && !isValidEmail(form.guardian_email.trim())) {
+      setError('Guardian email must be a valid email address.')
       return
     }
     const feeOverride = form.fee_override.trim() === '' ? null : Number(form.fee_override)
@@ -192,7 +208,7 @@ export function StudentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Students</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{students.length} total</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{activeStudentCount} active ({students.length} total)</p>
         </div>
         <Button onClick={openCreate}>+ Add Student</Button>
       </div>
@@ -221,10 +237,11 @@ export function StudentsPage() {
           ))}
         </Select>
         <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="max-w-[180px]">
-          <option value="all">All statuses</option>
+          <option value="all">All statuses (excl. left)</option>
           <option value="enrolled">Enrolled</option>
           <option value="inactive">Inactive</option>
           <option value="graduated">Graduated</option>
+          <option value="left">Left</option>
         </Select>
         <span className="ml-auto self-center text-sm text-slate-500 dark:text-slate-400">
           {filtered.length} of {students.length} students
@@ -285,7 +302,9 @@ export function StudentsPage() {
                           ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                           : s.enrollment_status === 'inactive'
                             ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
-                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                            : s.enrollment_status === 'left'
+                              ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                       }`}
                     >
                       {s.enrollment_status}
@@ -404,6 +423,7 @@ export function StudentsPage() {
                 <option value="enrolled">Enrolled</option>
                 <option value="inactive">Inactive</option>
                 <option value="graduated">Graduated</option>
+                <option value="left">Left</option>
               </Select>
             </Field>
             <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">

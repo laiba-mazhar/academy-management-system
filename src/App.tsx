@@ -22,6 +22,7 @@ import { QuestionBankPage } from '@/pages/shared/QuestionBankPage'
 import { ExamsPage } from '@/pages/shared/ExamsPage'
 import { ExamDetailPage } from '@/pages/shared/ExamDetailPage'
 import { FeeChallanPage } from '@/pages/admin/FeeChallanPage'
+import { SalariesPage } from '@/pages/admin/SalariesPage'
 import { CourseBreakdownOverviewPage } from '@/pages/admin/CourseBreakdownOverviewPage'
 import { TeacherCourseBreakdownPage } from '@/pages/teacher/TeacherCourseBreakdownPage'
 
@@ -44,6 +45,7 @@ export default function App() {
                 <Route path="attendance" element={<AttendancePage />} />
                 <Route path="fees" element={<FeesPage />} />
                 <Route path="fee-challans" element={<FeeChallanPage />} />
+                <Route path="salaries" element={<SalariesPage />} />
                 <Route path="course-breakdown" element={<CourseBreakdownOverviewPage />} />
               </Route>
             </Route>

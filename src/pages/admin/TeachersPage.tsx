@@ -4,10 +4,10 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { Field, Input } from '@/components/ui/Input'
-import { generateTempPassword, formatCurrency } from '@/lib/utils'
-import { edgeFunctionError } from '@/lib/errors'
-import type { Class, Profile, Subject, Teacher } from '@/types/database'
+import { Field, Input, Select } from '@/components/ui/Input'
+import { generateTempPassword, formatCurrency, isValidEmail, isValidPhone } from '@/lib/utils'
+import { edgeFunctionError, friendlyError } from '@/lib/errors'
+import type { Class, Profile, Subject, Teacher, TeacherStatus } from '@/types/database'
 
 type TeacherRow = Teacher & Pick<Profile, 'full_name' | 'email' | 'phone'>
 
@@ -17,6 +17,7 @@ export function TeachersPage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<'all' | TeacherStatus>('all')
 
   const [showCreate, setShowCreate] = useState(false)
   const [createForm, setCreateForm] = useState({ fullName: '', email: '', phone: '', monthlySalary: '0' })
@@ -25,7 +26,7 @@ export function TeachersPage() {
   const [createdCreds, setCreatedCreds] = useState<{ email: string; tempPassword: string } | null>(null)
 
   const [editing, setEditing] = useState<TeacherRow | null>(null)
-  const [editForm, setEditForm] = useState({ fullName: '', phone: '', monthlySalary: '0' })
+  const [editForm, setEditForm] = useState({ fullName: '', phone: '', monthlySalary: '0', status: 'active' as TeacherStatus })
   const [editError, setEditError] = useState<string | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<TeacherRow | null>(null)
@@ -63,6 +64,7 @@ export function TeachersPage() {
       email: p.email,
       phone: p.phone,
       monthly_salary: teacherById.get(p.id)?.monthly_salary ?? 0,
+      status: teacherById.get(p.id)?.status ?? 'active',
       created_at: teacherById.get(p.id)?.created_at ?? p.created_at,
     }))
     setTeachers(merged)
@@ -74,6 +76,11 @@ export function TeachersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const activeTeacherCount = useMemo(() => teachers.filter((t) => t.status !== 'left').length, [teachers])
+  const filteredTeachers = useMemo(() => {
+    if (statusFilter === 'all') return teachers.filter((t) => t.status !== 'left')
+    return teachers.filter((t) => t.status === statusFilter)
+  }, [teachers, statusFilter])
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
   const subjectsByTeacher = useMemo(() => {
     const map = new Map<string, Subject[]>()
@@ -89,6 +96,14 @@ export function TeachersPage() {
   async function handleCreate() {
     if (!createForm.fullName.trim() || !createForm.email.trim()) {
       setCreateError('Name and email are required.')
+      return
+    }
+    if (!isValidEmail(createForm.email.trim())) {
+      setCreateError('Enter a valid email address.')
+      return
+    }
+    if (createForm.phone.trim() && !isValidPhone(createForm.phone.trim())) {
+      setCreateError('Phone must be a valid phone number (7-15 digits).')
       return
     }
     setCreating(true)
@@ -125,6 +140,10 @@ export function TeachersPage() {
       setEditError('Name is required.')
       return
     }
+    if (editForm.phone.trim() && !isValidPhone(editForm.phone.trim())) {
+      setEditError('Phone must be a valid phone number (7-15 digits).')
+      return
+    }
     const salary = Number(editForm.monthlySalary)
     if (Number.isNaN(salary) || salary < 0) {
       setEditError('Salary must be a non-negative number.')
@@ -135,10 +154,10 @@ export function TeachersPage() {
         .from('profiles')
         .update({ full_name: editForm.fullName.trim(), phone: editForm.phone.trim() || null })
         .eq('id', editing.id),
-      supabase.from('teachers').update({ monthly_salary: salary }).eq('id', editing.id),
+      supabase.from('teachers').update({ monthly_salary: salary, status: editForm.status }).eq('id', editing.id),
     ])
     if (profileRes.error || teacherRes.error) {
-      setEditError(profileRes.error?.message ?? teacherRes.error?.message ?? 'Failed to save.')
+      setEditError(friendlyError(profileRes.error?.message ?? teacherRes.error?.message ?? 'Failed to save.'))
       return
     }
     show('Teacher updated.')
@@ -167,9 +186,24 @@ export function TeachersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Teachers</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{teachers.length} total</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{activeTeacherCount} active ({teachers.length} total)</p>
         </div>
         <Button onClick={() => setShowCreate(true)}>+ Add Teacher</Button>
+      </div>
+
+      <div className="flex flex-wrap gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+        <Select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as 'all' | TeacherStatus)}
+          className="max-w-[200px]"
+        >
+          <option value="all">All statuses (excl. left)</option>
+          <option value="active">Active</option>
+          <option value="left">Left</option>
+        </Select>
+        <span className="ml-auto self-center text-sm text-slate-500 dark:text-slate-400">
+          {filteredTeachers.length} of {teachers.length} teachers
+        </span>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
@@ -180,24 +214,25 @@ export function TeachersPage() {
               <th className="px-4 py-3">Email</th>
               <th className="px-4 py-3">Subjects / Classes</th>
               <th className="px-4 py-3">Monthly Salary</th>
+              <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
                   Loading...
                 </td>
               </tr>
-            ) : teachers.length === 0 ? (
+            ) : filteredTeachers.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
-                  No teachers yet.
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                  No teachers found.
                 </td>
               </tr>
             ) : (
-              teachers.map((t) => (
+              filteredTeachers.map((t) => (
                 <tr key={t.id} className="border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
                   <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{t.full_name}</td>
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{t.email}</td>
@@ -209,6 +244,17 @@ export function TeachersPage() {
                           .join(', ')}
                   </td>
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{formatCurrency(t.monthly_salary)}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        t.status === 'active'
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                          : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                      }`}
+                    >
+                      {t.status}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <button
                       onClick={() => {
@@ -217,6 +263,7 @@ export function TeachersPage() {
                           fullName: t.full_name,
                           phone: t.phone ?? '',
                           monthlySalary: String(t.monthly_salary),
+                          status: t.status,
                         })
                         setEditError(null)
                       }}
@@ -312,6 +359,15 @@ export function TeachersPage() {
                 value={editForm.monthlySalary}
                 onChange={(e) => setEditForm({ ...editForm, monthlySalary: e.target.value })}
               />
+            </Field>
+            <Field label="Status">
+              <Select
+                value={editForm.status}
+                onChange={(e) => setEditForm({ ...editForm, status: e.target.value as TeacherStatus })}
+              >
+                <option value="active">Active</option>
+                <option value="left">Left</option>
+              </Select>
             </Field>
             {editError && <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>}
             <div className="flex justify-end gap-2 pt-2">

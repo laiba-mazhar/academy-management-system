@@ -7,9 +7,9 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
-import type { Class, Subject } from '@/types/database'
+import type { Class, Subject, TeacherStatus } from '@/types/database'
 
-type TeacherOption = { id: string; full_name: string }
+type TeacherOption = { id: string; full_name: string; status: TeacherStatus }
 
 export function ClassesSubjectsPage() {
   const { show } = useToast()
@@ -35,17 +35,26 @@ export function ClassesSubjectsPage() {
 
   async function load() {
     setLoading(true)
-    const [classesRes, subjectsRes, profilesRes] = await Promise.all([
+    const [classesRes, subjectsRes, profilesRes, teachersRes] = await Promise.all([
       supabase.from('classes').select('*').order('name'),
       supabase.from('subjects').select('*').order('name'),
       supabase.from('profiles').select('id, full_name').eq('role', 'teacher').order('full_name'),
+      supabase.from('teachers').select('id, status'),
     ])
     if (classesRes.error) show(classesRes.error.message, 'error')
     else setClasses(classesRes.data as Class[])
     if (subjectsRes.error) show(subjectsRes.error.message, 'error')
     else setSubjects(subjectsRes.data as Subject[])
     if (profilesRes.error) show(profilesRes.error.message, 'error')
-    else setTeachers(profilesRes.data as unknown as TeacherOption[])
+    else {
+      const statusById = new Map((teachersRes.data ?? []).map((t) => [t.id, t.status as TeacherStatus]))
+      setTeachers(
+        (profilesRes.data as { id: string; full_name: string }[]).map((p) => ({
+          ...p,
+          status: statusById.get(p.id) ?? 'active',
+        }))
+      )
+    }
     setLoading(false)
   }
 
@@ -56,6 +65,7 @@ export function ClassesSubjectsPage() {
 
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
   const teacherById = useMemo(() => new Map(teachers.map((t) => [t.id, t])), [teachers])
+  const assignableTeachers = useMemo(() => teachers.filter((t) => t.status !== 'left'), [teachers])
   const pendingSubjects = subjects.filter((s) => s.status === 'pending_approval')
   const activeSubjects = subjects.filter((s) => s.status === 'active')
 
@@ -167,7 +177,7 @@ export function ClassesSubjectsPage() {
         <PendingApprovalPanel
           pending={pendingSubjects}
           classById={classById}
-          teachers={teachers}
+          teachers={assignableTeachers}
           onApprove={approveSubject}
           onReject={rejectSubject}
         />
@@ -362,7 +372,7 @@ export function ClassesSubjectsPage() {
                 onChange={(e) => setSubjectForm({ ...subjectForm, teacher_id: e.target.value })}
               >
                 <option value="">Unassigned</option>
-                {teachers.map((t) => (
+                {assignableTeachers.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.full_name}
                   </option>

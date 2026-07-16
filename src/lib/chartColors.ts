@@ -1,25 +1,26 @@
 // Categorical/sequential/status palette, tied to the maroon/cream/gold brand
-// (see tailwind.config.js brand/cream/gold scales). Fixed order; never cycle
-// or reassign per filter. Hues are kept far enough apart to stay
-// distinguishable even though they're pulled toward the warm brand family.
+// (see tailwind.config.js brand/cream/gold scales) but lightened to a soft
+// pastel register for the dashboard charts. Fixed order; never cycle or
+// reassign per filter. Hues are kept far enough apart to stay distinguishable
+// even at this lighter saturation.
 export const CATEGORICAL = [
-  '#932e3e', // maroon (brand-500)
-  '#c99a3a', // gold (gold-500)
-  '#2f6e6a', // deep teal
-  '#c4622d', // burnt orange
-  '#3c4a7a', // indigo
-  '#57762b', // olive green
-  '#8a4a6b', // plum
-  '#45586b', // slate blue
+  '#d9909a', // pastel maroon (brand-200/300 family)
+  '#e3c17a', // pastel gold
+  '#8fc3bd', // pastel teal
+  '#e3a97c', // pastel burnt orange
+  '#9aa3c9', // pastel indigo
+  '#a8c48a', // pastel olive
+  '#c497b0', // pastel plum
+  '#9db0c2', // pastel slate blue
 ]
 
-export const SEQUENTIAL_BLUE = '#932e3e'
+export const SEQUENTIAL_BLUE = '#d9909a'
 
 export const STATUS = {
-  good: '#3f7d3a',
-  warning: '#c99a3a',
-  serious: '#c4622d',
-  critical: '#a3283a',
+  good: '#8bbf7a',
+  warning: '#e3c17a',
+  serious: '#e3a97c',
+  critical: '#d9909a',
 }
 
 export const CHART_INK = {

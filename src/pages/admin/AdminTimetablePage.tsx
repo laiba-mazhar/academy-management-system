@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Field, Select, Input } from '@/components/ui/Input'
 import { DAY_NAMES } from '@/lib/utils'
-import type { Class, Subject, Timetable } from '@/types/database'
+import type { Class, Subject, Timetable, TeacherStatus } from '@/types/database'
 
-type TeacherOption = { id: string; full_name: string }
+type TeacherOption = { id: string; full_name: string; status: TeacherStatus }
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -28,15 +28,24 @@ export function AdminTimetablePage() {
 
   async function load() {
     setLoading(true)
-    const [slotsRes, profilesRes, subjectsRes, classesRes] = await Promise.all([
+    const [slotsRes, profilesRes, teachersRes, subjectsRes, classesRes] = await Promise.all([
       supabase.from('timetable').select('*'),
       supabase.from('profiles').select('id, full_name').eq('role', 'teacher').order('full_name'),
+      supabase.from('teachers').select('id, status'),
       supabase.from('subjects').select('*').eq('status', 'active'),
       supabase.from('classes').select('*'),
     ])
     if (slotsRes.error) show(slotsRes.error.message, 'error')
     else setSlots(slotsRes.data as Timetable[])
-    if (profilesRes.data) setTeachers(profilesRes.data as unknown as TeacherOption[])
+    if (profilesRes.data) {
+      const statusById = new Map((teachersRes.data ?? []).map((t) => [t.id, t.status as TeacherStatus]))
+      setTeachers(
+        (profilesRes.data as { id: string; full_name: string }[]).map((p) => ({
+          ...p,
+          status: statusById.get(p.id) ?? 'active',
+        }))
+      )
+    }
     if (subjectsRes.data) setSubjects(subjectsRes.data as Subject[])
     if (classesRes.data) setClasses(classesRes.data as Class[])
     setLoading(false)
@@ -48,6 +57,7 @@ export function AdminTimetablePage() {
   }, [])
 
   const teacherById = useMemo(() => new Map(teachers.map((t) => [t.id, t])), [teachers])
+  const assignableTeachers = useMemo(() => teachers.filter((t) => t.status !== 'left'), [teachers])
   const subjectById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
   const teacherSubjects = subjects.filter((s) => s.teacher_id === form.teacher_id)
@@ -202,7 +212,7 @@ export function AdminTimetablePage() {
                 onChange={(e) => setForm({ ...form, teacher_id: e.target.value, subject_id: '' })}
               >
                 <option value="">Select teacher...</option>
-                {teachers.map((t) => (
+                {assignableTeachers.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.full_name}
                   </option>

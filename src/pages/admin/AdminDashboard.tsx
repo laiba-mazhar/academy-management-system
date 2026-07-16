@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Bar,
   BarChart,
@@ -13,12 +14,10 @@ import {
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
-import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/EmptyState'
 import { CATEGORICAL, CHART_INK, SEQUENTIAL_BLUE, STATUS } from '@/lib/chartColors'
-import { currentMonthValue, formatCurrency, formatMonth, monthValueToDate, percentage, todayLocalDate } from '@/lib/utils'
-import { friendlyError } from '@/lib/errors'
-import type { Attendance, Class, Exam, ExamResult, Invoice, Profile, Salary, Student, Teacher } from '@/types/database'
+import { currentMonthValue, formatCurrency, formatMonth, monthValueToDate, percentage } from '@/lib/utils'
+import type { Attendance, Class, Exam, ExamResult, Invoice, Salary, Student } from '@/types/database'
 
 const PASS_THRESHOLD = 40
 
@@ -40,26 +39,22 @@ export function AdminDashboard() {
   const [attendance, setAttendance] = useState<Attendance[]>([])
   const [exams, setExams] = useState<Exam[]>([])
   const [examResults, setExamResults] = useState<ExamResult[]>([])
-  const [teachers, setTeachers] = useState<(Teacher & Pick<Profile, 'full_name'>)[]>([])
   const [salaries, setSalaries] = useState<Salary[]>([])
   const [loading, setLoading] = useState(true)
-  const [generatingSalaries, setGeneratingSalaries] = useState(false)
 
   const currentMonth = monthValueToDate(currentMonthValue())
 
   async function load() {
     setLoading(true)
-    const [studentsRes, classesRes, invoicesRes, attendanceRes, examsRes, resultsRes, profilesRes, salariesRes] =
-      await Promise.all([
-        supabase.from('students').select('*'),
-        supabase.from('classes').select('*'),
-        supabase.from('invoices').select('*'),
-        supabase.from('attendance').select('*').gte('date', currentMonth),
-        supabase.from('exams').select('*'),
-        supabase.from('exam_results').select('*'),
-        supabase.from('profiles').select('id, full_name').eq('role', 'teacher'),
-        supabase.from('salaries').select('*'),
-      ])
+    const [studentsRes, classesRes, invoicesRes, attendanceRes, examsRes, resultsRes, salariesRes] = await Promise.all([
+      supabase.from('students').select('*'),
+      supabase.from('classes').select('*'),
+      supabase.from('invoices').select('*'),
+      supabase.from('attendance').select('*').gte('date', currentMonth),
+      supabase.from('exams').select('*'),
+      supabase.from('exam_results').select('*'),
+      supabase.from('salaries').select('*'),
+    ])
     if (studentsRes.data) setStudents(studentsRes.data as Student[])
     if (classesRes.data) setClasses(classesRes.data as Class[])
     if (invoicesRes.error) show(invoicesRes.error.message, 'error')
@@ -68,22 +63,6 @@ export function AdminDashboard() {
     if (examsRes.data) setExams(examsRes.data as Exam[])
     if (resultsRes.data) setExamResults(resultsRes.data as ExamResult[])
     if (salariesRes.data) setSalaries(salariesRes.data as Salary[])
-
-    if (profilesRes.data) {
-      const ids = (profilesRes.data as Profile[]).map((p) => p.id)
-      const teachersRes = ids.length
-        ? await supabase.from('teachers').select('*').in('id', ids)
-        : { data: [] as Teacher[] }
-      const teacherById = new Map(((teachersRes.data as Teacher[]) ?? []).map((t) => [t.id, t]))
-      setTeachers(
-        (profilesRes.data as Profile[]).map((p) => ({
-          id: p.id,
-          full_name: p.full_name,
-          monthly_salary: teacherById.get(p.id)?.monthly_salary ?? 0,
-          created_at: teacherById.get(p.id)?.created_at ?? p.created_at,
-        }))
-      )
-    }
     setLoading(false)
   }
 
@@ -95,6 +74,10 @@ export function AdminDashboard() {
   const examById = useMemo(() => new Map(exams.map((e) => [e.id, e])), [exams])
 
   const enrolledCount = students.filter((s) => s.enrollment_status === 'enrolled').length
+  const newAdmissionsThisMonth = useMemo(
+    () => students.filter((s) => s.created_at.startsWith(currentMonthValue())).length,
+    [students]
+  )
 
   const monthInvoices = invoices.filter((i) => i.month === currentMonth)
   const monthFeeRows = useMemo(() => {
@@ -178,7 +161,7 @@ export function AdminDashboard() {
       .filter((row) => row.percent > 0)
   }, [attendance, classes])
 
-  const monthSalaries = salaries.filter((s) => s.month === currentMonth)
+  const monthSalaries = useMemo(() => salaries.filter((s) => s.month === currentMonth), [salaries, currentMonth])
   const salaryTotals = useMemo(() => {
     const paid = monthSalaries.filter((s) => s.status === 'paid').reduce((sum, s) => sum + s.amount, 0)
     const pending = monthSalaries.filter((s) => s.status === 'pending').reduce((sum, s) => sum + s.amount, 0)
@@ -191,24 +174,11 @@ export function AdminDashboard() {
     return { paid, pending }
   }, [salaries])
 
-  const salaryByTeacherAllTime = useMemo(() => {
-    const map = new Map<string, { paid: number; pending: number }>()
-    for (const s of salaries) {
-      const entry = map.get(s.teacher_id) ?? { paid: 0, pending: 0 }
-      if (s.status === 'paid') entry.paid += s.amount
-      else entry.pending += s.amount
-      map.set(s.teacher_id, entry)
-    }
-    return map
-  }, [salaries])
-
   // Financial snapshot: the only cost the system tracks is teacher salary, so
-  // "salary expense" doubles as both COGS (direct instructional cost) and total
-  // operating expense here — GPM and OPM come out equal. Flagged in the UI copy
-  // rather than faked apart, since there's no separate opex data to split on.
+  // "salary expense" doubles as both direct instructional cost and total
+  // operating expense here.
   const salaryExpenseThisMonth = monthSalaries.reduce((sum, s) => sum + s.amount, 0)
   const profitThisMonth = collectedThisMonth - salaryExpenseThisMonth
-  const marginPercent = collectedThisMonth > 0 ? Math.round((profitThisMonth / collectedThisMonth) * 1000) / 10 : 0
 
   const revenueVsExpenseTrend = useMemo(() => {
     const months = lastNMonths(6)
@@ -224,41 +194,6 @@ export function AdminDashboard() {
     })
   }, [invoices, salaries])
 
-  async function generateSalaries() {
-    setGeneratingSalaries(true)
-    const existing = new Set(monthSalaries.map((s) => s.teacher_id))
-    const rows = teachers
-      .filter((t) => !existing.has(t.id))
-      .map((t) => ({ teacher_id: t.id, month: currentMonth, amount: t.monthly_salary, status: 'pending' as const }))
-    if (rows.length === 0) {
-      setGeneratingSalaries(false)
-      show('Salary records already exist for every teacher this month.', 'error')
-      return
-    }
-    const { error } = await supabase.from('salaries').insert(rows)
-    setGeneratingSalaries(false)
-    if (error) {
-      show(friendlyError(error.message), 'error')
-      return
-    }
-    show(`Generated ${rows.length} salary record(s) for ${formatMonth(currentMonth)}.`)
-    load()
-  }
-
-  async function markSalaryPaid(salary: Salary) {
-    const { error } = await supabase
-      .from('salaries')
-      .update({ status: 'paid', paid_date: todayLocalDate() })
-      .eq('id', salary.id)
-    if (error) show(error.message, 'error')
-    else {
-      show('Salary marked as paid.')
-      load()
-    }
-  }
-
-  const salaryByTeacher = useMemo(() => new Map(monthSalaries.map((s) => [s.teacher_id, s])), [monthSalaries])
-
   const cards = [
     { label: 'Total Students', value: String(enrolledCount) },
     { label: `Collected — ${formatMonth(currentMonth)}`, value: formatCurrency(collectedThisMonth) },
@@ -273,8 +208,8 @@ export function AdminDashboard() {
       color: profitThisMonth >= 0 ? STATUS.good : STATUS.critical,
     },
     { label: 'Salary Expense', value: formatCurrency(salaryExpenseThisMonth), color: CHART_INK.primary },
-    { label: 'GPM', value: `${marginPercent}%`, color: CATEGORICAL[0] },
-    { label: 'OPM', value: `${marginPercent}%`, color: CATEGORICAL[4] },
+    { label: 'Salaries To Be Paid', value: formatCurrency(salaryTotals.pending), color: STATUS.warning },
+    { label: 'New Admissions This Month', value: String(newAdmissionsThisMonth), color: CATEGORICAL[2] },
   ]
 
   if (loading) {
@@ -324,58 +259,43 @@ export function AdminDashboard() {
           description="Charts will populate once students, fees, attendance, and exam results are recorded."
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-            <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Revenue vs Salary Expense (last 6 months)</p>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={revenueVsExpenseTrend}>
-                <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
-                <XAxis dataKey="month" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
-                <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                <Legend />
-                <Bar dataKey="revenue" fill={CATEGORICAL[0]} radius={[4, 4, 0, 0]} name="Revenue" />
-                <Bar dataKey="expense" fill={CATEGORICAL[5]} radius={[4, 4, 0, 0]} name="Salary Expense" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-            <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Profit Trend (last 6 months)</p>
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={revenueVsExpenseTrend}>
-                <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
-                <XAxis dataKey="month" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
-                <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                <Line type="monotone" dataKey="profit" stroke={SEQUENTIAL_BLUE} strokeWidth={2} dot={{ r: 3 }} name="Profit" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-            <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Attendance % by Class (this month)</p>
-            {attendanceByClass.length === 0 ? (
-              <p className="py-16 text-center text-sm text-slate-400 dark:text-slate-500">No attendance recorded this month.</p>
-            ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+              <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Revenue vs Salary Expense (last 6 months)</p>
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={attendanceByClass}>
+                <BarChart data={revenueVsExpenseTrend}>
                   <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
-                  <XAxis dataKey="class" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
-                  <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                  <Tooltip formatter={(v: number) => `${v}%`} />
-                  <Bar dataKey="percent" fill={SEQUENTIAL_BLUE} radius={[4, 4, 0, 0]} name="Attendance %" />
+                  <XAxis dataKey="month" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
+                  <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Legend />
+                  <Bar dataKey="revenue" fill={CATEGORICAL[0]} radius={[4, 4, 0, 0]} name="Revenue" />
+                  <Bar dataKey="expense" fill={CATEGORICAL[5]} radius={[4, 4, 0, 0]} name="Salary Expense" />
                 </BarChart>
               </ResponsiveContainer>
-            )}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+              <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Profit Trend (last 6 months)</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={revenueVsExpenseTrend}>
+                  <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
+                  <XAxis dataKey="month" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
+                  <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Line type="monotone" dataKey="profit" stroke={SEQUENTIAL_BLUE} strokeWidth={2} dot={{ r: 3 }} name="Profit" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 lg:col-span-2">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
             <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Performance by Class</p>
             {performanceByClass.length === 0 ? (
               <p className="py-16 text-center text-sm text-slate-400 dark:text-slate-500">No exam results recorded yet.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={performanceByClass}>
                   <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
                   <XAxis dataKey="class" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
@@ -389,39 +309,55 @@ export function AdminDashboard() {
             )}
           </div>
 
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 lg:col-span-2">
-            <p className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-100">Results by Exam Type</p>
-            <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">
-              Combined across every subject and class sitting each exam (Mid 1, Mid 2, Final, etc.)
-            </p>
-            {performanceByExamType.length === 0 ? (
-              <p className="py-16 text-center text-sm text-slate-400 dark:text-slate-500">No exam results recorded yet.</p>
-            ) : (
-              <>
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={performanceByExamType}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+              <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Attendance % by Class (this month)</p>
+              {attendanceByClass.length === 0 ? (
+                <p className="py-16 text-center text-sm text-slate-400 dark:text-slate-500">No attendance recorded this month.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={attendanceByClass}>
                     <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
-                    <XAxis dataKey="name" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
+                    <XAxis dataKey="class" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
                     <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
                     <Tooltip formatter={(v: number) => `${v}%`} />
-                    <Legend />
-                    <Bar dataKey="avgPercent" fill={CATEGORICAL[2]} radius={[4, 4, 0, 0]} name="Average %" />
-                    <Bar dataKey="passRate" fill={CATEGORICAL[3]} radius={[4, 4, 0, 0]} name={`Pass Rate (≥${PASS_THRESHOLD}%)`} />
+                    <Bar dataKey="percent" fill={SEQUENTIAL_BLUE} radius={[4, 4, 0, 0]} name="Attendance %" />
                   </BarChart>
                 </ResponsiveContainer>
-                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                  {performanceByExamType.map((row) => (
-                    <div key={row.name} className="rounded-lg border border-slate-100 dark:border-slate-700/60 px-3 py-2">
-                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{row.name}</p>
-                      <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-                        Avg {row.avgPercent}% · Pass {row.passRate}%
-                      </p>
-                      <p className="text-xs text-slate-400 dark:text-slate-500">{row.studentCount} result(s)</p>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+              <p className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-100">Results by Exam Type</p>
+              <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">Combined across every subject and class (Mid 1, Mid 2, Final, etc.)</p>
+              {performanceByExamType.length === 0 ? (
+                <p className="py-16 text-center text-sm text-slate-400 dark:text-slate-500">No exam results recorded yet.</p>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={performanceByExamType}>
+                      <CartesianGrid stroke={CHART_INK.gridline} vertical={false} />
+                      <XAxis dataKey="name" stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={{ stroke: CHART_INK.baseline }} />
+                      <YAxis stroke={CHART_INK.muted} fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
+                      <Tooltip formatter={(v: number) => `${v}%`} />
+                      <Legend />
+                      <Bar dataKey="avgPercent" fill={CATEGORICAL[2]} radius={[4, 4, 0, 0]} name="Average %" />
+                      <Bar dataKey="passRate" fill={CATEGORICAL[3]} radius={[4, 4, 0, 0]} name={`Pass Rate (≥${PASS_THRESHOLD}%)`} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {performanceByExamType.map((row) => (
+                      <div key={row.name} className="rounded-lg border border-slate-100 dark:border-slate-700/60 px-3 py-2">
+                        <p className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{row.name}</p>
+                        <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                          Avg {row.avgPercent}% · Pass {row.passRate}%
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -429,11 +365,11 @@ export function AdminDashboard() {
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Salaries — {formatMonth(currentMonth)}</p>
-          <Button variant="secondary" onClick={generateSalaries} disabled={generatingSalaries}>
-            {generatingSalaries ? 'Generating...' : 'Generate Salary Records'}
-          </Button>
+          <Link to="/admin/salaries" className="text-sm text-brand-600 hover:underline dark:text-gold-400">
+            Manage Salaries →
+          </Link>
         </div>
-        <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Paid ({formatMonth(currentMonth)})</p>
             <p className="text-xl font-semibold" style={{ color: STATUS.good }}>
@@ -459,56 +395,6 @@ export function AdminDashboard() {
             </p>
           </div>
         </div>
-        {teachers.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500">No teachers yet.</p>
-        ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 dark:border-slate-700 text-xs uppercase text-slate-500 dark:text-slate-400">
-              <tr>
-                <th className="px-2 py-2">Teacher</th>
-                <th className="px-2 py-2">This Month</th>
-                <th className="px-2 py-2">Status</th>
-                <th className="px-2 py-2">Total Paid (all time)</th>
-                <th className="px-2 py-2">Total Pending (all time)</th>
-                <th className="px-2 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {teachers.map((t) => {
-                const salary = salaryByTeacher.get(t.id)
-                const lifetime = salaryByTeacherAllTime.get(t.id) ?? { paid: 0, pending: 0 }
-                return (
-                  <tr key={t.id} className="border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-                    <td className="px-2 py-2 font-medium text-slate-800 dark:text-slate-100">{t.full_name}</td>
-                    <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{formatCurrency(salary?.amount ?? t.monthly_salary)}</td>
-                    <td className="px-2 py-2">
-                      {salary ? (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            salary.status === 'paid' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
-                          }`}
-                        >
-                          {salary.status}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-400 dark:text-slate-500">Not generated</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-2 text-green-700 dark:text-green-400">{formatCurrency(lifetime.paid)}</td>
-                    <td className="px-2 py-2 text-amber-700 dark:text-amber-400">{formatCurrency(lifetime.pending)}</td>
-                    <td className="px-2 py-2 text-right">
-                      {salary && salary.status !== 'paid' && (
-                        <button onClick={() => markSalaryPaid(salary)} className="text-sm text-brand-600 hover:underline">
-                          Mark Paid
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
       </div>
 
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">

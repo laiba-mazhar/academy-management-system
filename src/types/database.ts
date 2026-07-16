@@ -1,5 +1,6 @@
 export type UserRole = 'admin' | 'teacher'
-export type EnrollmentStatus = 'enrolled' | 'inactive' | 'graduated'
+export type EnrollmentStatus = 'enrolled' | 'inactive' | 'graduated' | 'left'
+export type TeacherStatus = 'active' | 'left'
 export type SubjectStatus = 'active' | 'pending_approval'
 export type InvoiceStatus = 'unpaid' | 'paid' | 'overdue'
 export type AttendanceStatus = 'present' | 'absent' | 'late'
@@ -18,6 +19,7 @@ export interface Profile {
 export interface Teacher {
   id: string
   monthly_salary: number
+  status: TeacherStatus
   created_at: string
 }
 
@@ -62,6 +64,7 @@ export interface Invoice {
   class_id: string
   month: string
   amount: number
+  discount: number
   status: InvoiceStatus
   payment_date: string | null
   due_date: string | null

@@ -1,5 +1,19 @@
+export function isValidPhone(phone: string): boolean {
+  const digitCount = (phone.match(/\d/g) ?? []).length
+  return /^[0-9+\-\s()]+$/.test(phone) && digitCount >= 7 && digitCount <= 15
+}
+
+export function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
 export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
+  return new Intl.NumberFormat('en-PK', {
+    style: 'currency',
+    currency: 'PKR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
 }
 
 export function formatDate(dateStr: string | null): string {
@@ -53,6 +67,12 @@ export function shiftMonthValue(monthValue: string, delta: number): string {
 // in UTC during early morning hours in UTC+ zones).
 export function todayLocalDate(): string {
   const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function daysAgoLocalDate(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 

@@ -18,6 +18,7 @@ export function FeeChallanPage() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [feeDrafts, setFeeDrafts] = useState<Record<string, string>>({})
   const [dueDateDrafts, setDueDateDrafts] = useState<Record<string, string>>({})
+  const [discountDrafts, setDiscountDrafts] = useState<Record<string, string>>({})
 
   const [challanFor, setChallanFor] = useState<Student | null>(null)
   const [challanMonth, setChallanMonth] = useState(currentMonthValue())
@@ -75,17 +76,21 @@ export function FeeChallanPage() {
 
   const currentMonth = monthValueToDate(currentMonthValue())
 
-  // "Payable" = due right now (this month's tuition if unpaid + any unpaid
-  // one-time fees). "Remaining" = the full outstanding balance across every
-  // month that's ever been invoiced, plus those same one-time fees.
+  // "Remaining" = the full outstanding balance across every month that's ever
+  // been invoiced, plus unpaid one-time fees (gross, before any discount).
+  // "Discount" applies to what's due right now (this month's invoice) and is
+  // admin-editable. "To Be Paid" = this month's due amount + one-time fees,
+  // minus that discount.
   function feeSummary(student: Student) {
     const studentInvoices = invoicesByStudent.get(student.id) ?? []
     const oneTimeFees = (student.admission_fee_paid ? 0 : student.admission_fee_amount) + (student.security_fee_paid ? 0 : student.security_fee_amount)
     const thisMonthInvoice = studentInvoices.find((i) => i.month === currentMonth)
-    const payable = (thisMonthInvoice && thisMonthInvoice.status !== 'paid' ? thisMonthInvoice.amount : 0) + oneTimeFees
+    const grossDue = (thisMonthInvoice && thisMonthInvoice.status !== 'paid' ? thisMonthInvoice.amount : 0) + oneTimeFees
+    const discount = thisMonthInvoice?.discount ?? 0
+    const toBePaid = Math.max(0, grossDue - discount)
     const remaining =
       studentInvoices.filter((i) => i.status !== 'paid').reduce((sum, i) => sum + i.amount, 0) + oneTimeFees
-    return { payable, remaining }
+    return { discount, toBePaid, remaining }
   }
 
   async function saveFeeOverride(student: Student) {
@@ -123,6 +128,30 @@ export function FeeChallanPage() {
     }
     show(`Updated ${student.full_name}'s due date.`)
     setDueDateDrafts((prev) => {
+      const next = { ...prev }
+      delete next[invoice.id]
+      return next
+    })
+    load()
+  }
+
+  // Discount applies to this month's invoice — the amount actually due right
+  // now — rather than retroactively rewriting past unpaid months.
+  async function saveInlineDiscount(student: Student, invoice: Invoice) {
+    const draft = discountDrafts[invoice.id]
+    if (draft === undefined) return
+    const value = Number(draft)
+    if (Number.isNaN(value) || value < 0) {
+      show('Discount must be a non-negative number.', 'error')
+      return
+    }
+    const { error } = await supabase.from('invoices').update({ discount: value }).eq('id', invoice.id)
+    if (error) {
+      show(friendlyError(error.message), 'error')
+      return
+    }
+    show(`Updated ${student.full_name}'s discount.`)
+    setDiscountDrafts((prev) => {
       const next = { ...prev }
       delete next[invoice.id]
       return next
@@ -233,6 +262,15 @@ export function FeeChallanPage() {
     show('Due date saved.')
   }
 
+  // Clicking Print previously left an edited-but-unsaved due date behind —
+  // save it first so what's on the printed challan always matches what's saved.
+  async function handlePrint() {
+    if (challanInvoice && dueDateDraft !== (challanInvoice.due_date ?? '')) {
+      await saveDueDate()
+    }
+    window.print()
+  }
+
   async function markChallanPaid() {
     if (!challanInvoice) return
     const { error } = await supabase
@@ -258,9 +296,9 @@ export function FeeChallanPage() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Total Payable Now</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Total To Be Paid Now</p>
           <p className="mt-2 text-2xl font-semibold text-amber-700 dark:text-amber-400">
-            {formatCurrency(filtered.reduce((sum, s) => sum + feeSummary(s).payable, 0))}
+            {formatCurrency(filtered.reduce((sum, s) => sum + feeSummary(s).toBePaid, 0))}
           </p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
@@ -300,21 +338,22 @@ export function FeeChallanPage() {
               <th className="px-4 py-3">Security Fee</th>
               <th className="px-4 py-3">Monthly Fee</th>
               <th className="px-4 py-3">Due Date (this month)</th>
-              <th className="px-4 py-3">Payable Now</th>
               <th className="px-4 py-3">Total Remaining</th>
+              <th className="px-4 py-3">Discount</th>
+              <th className="px-4 py-3">To Be Paid</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                <td colSpan={10} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
                   Loading...
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                <td colSpan={10} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
                   No students match these filters.
                 </td>
               </tr>
@@ -370,7 +409,7 @@ export function FeeChallanPage() {
                     </div>
                   </td>
                   {(() => {
-                    const { payable, remaining } = feeSummary(s)
+                    const { discount, toBePaid, remaining } = feeSummary(s)
                     const thisMonthInvoice = (invoicesByStudent.get(s.id) ?? []).find((i) => i.month === currentMonth)
                     return (
                       <>
@@ -397,8 +436,33 @@ export function FeeChallanPage() {
                             <span className="text-xs text-slate-400 dark:text-slate-500">No challan yet</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 font-medium text-amber-700 dark:text-amber-400">{formatCurrency(payable)}</td>
                         <td className="px-4 py-3 font-medium text-red-600 dark:text-red-400">{formatCurrency(remaining)}</td>
+                        <td className="px-4 py-3">
+                          {thisMonthInvoice ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={discountDrafts[thisMonthInvoice.id] ?? String(discount)}
+                                onChange={(e) => setDiscountDrafts({ ...discountDrafts, [thisMonthInvoice.id]: e.target.value })}
+                                className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
+                              />
+                              {discountDrafts[thisMonthInvoice.id] !== undefined &&
+                                discountDrafts[thisMonthInvoice.id] !== String(discount) && (
+                                  <button
+                                    onClick={() => saveInlineDiscount(s, thisMonthInvoice)}
+                                    className="text-xs text-brand-600 hover:underline dark:text-gold-400"
+                                  >
+                                    Save
+                                  </button>
+                                )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-amber-700 dark:text-amber-400">{formatCurrency(toBePaid)}</td>
                       </>
                     )
                   })()}
@@ -510,14 +574,23 @@ export function FeeChallanPage() {
                       <span className="font-semibold">{formatCurrency(challanFor.security_fee_amount)}</span>
                     </div>
                   )}
+                  {challanInvoice.discount > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 dark:text-slate-400">Discount</span>
+                      <span className="font-semibold">-{formatCurrency(challanInvoice.discount)}</span>
+                    </div>
+                  )}
                   <div className="my-2 border-t border-slate-200 dark:border-slate-700" />
                   <div className="flex justify-between text-base">
                     <span className="font-semibold">Total Due</span>
                     <span className="font-bold">
                       {formatCurrency(
-                        (challanInvoice.status === 'paid' ? 0 : challanInvoice.amount) +
-                          (!challanFor.admission_fee_paid ? challanFor.admission_fee_amount : 0) +
-                          (!challanFor.security_fee_paid ? challanFor.security_fee_amount : 0)
+                        Math.max(
+                          0,
+                          (challanInvoice.status === 'paid' ? 0 : challanInvoice.amount - challanInvoice.discount) +
+                            (!challanFor.admission_fee_paid ? challanFor.admission_fee_amount : 0) +
+                            (!challanFor.security_fee_paid ? challanFor.security_fee_amount : 0)
+                        )
                       )}
                     </span>
                   </div>
@@ -532,7 +605,7 @@ export function FeeChallanPage() {
                   Close
                 </Button>
                 {challanInvoice.status !== 'paid' && <Button onClick={markChallanPaid}>Mark Paid</Button>}
-                <Button variant="secondary" onClick={() => window.print()}>
+                <Button variant="secondary" onClick={handlePrint}>
                   Print
                 </Button>
               </div>

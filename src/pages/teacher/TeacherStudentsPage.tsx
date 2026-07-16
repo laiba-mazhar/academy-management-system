@@ -30,7 +30,9 @@ export function TeacherStudentsPage() {
   }, [])
 
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
-  const filtered = students.filter((s) => s.full_name.toLowerCase().includes(search.toLowerCase()))
+  const filtered = students.filter(
+    (s) => s.enrollment_status !== 'left' && s.full_name.toLowerCase().includes(search.toLowerCase())
+  )
 
   return (
     <div className="space-y-4">

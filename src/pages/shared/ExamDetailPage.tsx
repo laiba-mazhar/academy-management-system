@@ -90,10 +90,15 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     if (isSelected) next.delete(question.id)
     else next.add(question.id)
     setSelectedQuestionIds(next)
+    if (next.size === 0) setTab('paper')
   }
 
   async function handleSaveMarks() {
     if (!exam) return
+    if (selectedQuestionIds.size === 0) {
+      show('Build the exam paper (select at least one question) before entering marks.', 'error')
+      return
+    }
     const invalid = students.find((s) => {
       const val = results[s.id]
       if (val === undefined || val === '') return false
@@ -153,8 +158,12 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
             Exam Paper
           </button>
           <button
-            onClick={() => setTab('marks')}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === 'marks' ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}
+            onClick={() => selectedQuestionIds.size > 0 && setTab('marks')}
+            disabled={selectedQuestionIds.size === 0}
+            title={selectedQuestionIds.size === 0 ? 'Select at least one question in the Exam Paper tab first' : undefined}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              tab === 'marks' ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'
+            } ${selectedQuestionIds.size === 0 ? 'cursor-not-allowed opacity-50' : ''}`}
           >
             Marks Entry
           </button>
