@@ -50,7 +50,12 @@ Deno.serve(async (req) => {
 
   const { error: deleteError } = await adminClient.auth.admin.deleteUser(teacherId)
   if (deleteError) {
-    return jsonResponse({ error: deleteError.message }, 400)
+    // salaries/teacher_attendance now block the cascade instead of silently
+    // wiping payroll and attendance history — surface that as guidance.
+    const message = deleteError.message.includes('foreign key constraint')
+      ? "This teacher has salary or attendance records on file. Mark them as 'left' instead of deleting, so that history is preserved."
+      : deleteError.message
+    return jsonResponse({ error: message }, 400)
   }
 
   return jsonResponse({ success: true })

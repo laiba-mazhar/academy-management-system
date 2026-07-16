@@ -84,7 +84,7 @@ export function AttendancePage() {
       const [settingsRes, attendanceRes, studentsRes] = await Promise.all([
         supabase.from('attendance_settings').select('*').eq('id', 1).single(),
         supabase.from('attendance').select('*'),
-        supabase.from('students').select('*'),
+        supabase.from('students').select('*').eq('enrollment_status', 'enrolled'),
       ])
       if (settingsRes.data) {
         const pct = (settingsRes.data as { threshold_percent: number }).threshold_percent

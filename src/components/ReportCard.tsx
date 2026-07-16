@@ -3,7 +3,18 @@ import { supabase } from '@/lib/supabase'
 import { percentage, formatDate } from '@/lib/utils'
 import type { Exam, ExamResult, Student, Subject } from '@/types/database'
 
-export function ReportCard({ student, className }: { student: Student; className?: string }) {
+export function ReportCard({
+  student,
+  className,
+  subjectScoped,
+}: {
+  student: Student
+  className?: string
+  /** True when rendered somewhere RLS limits exam_results to the viewer's own
+   * subject(s) — e.g. a teacher's view — so "Overall" isn't the student's
+   * true cross-subject average and must say so. */
+  subjectScoped?: boolean
+}) {
   const [results, setResults] = useState<ExamResult[]>([])
   const [exams, setExams] = useState<Exam[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
@@ -69,14 +80,20 @@ export function ReportCard({ student, className }: { student: Student; className
         <p className="text-lg font-semibold">Al Maktab Educational Institute</p>
         <p className="text-sm text-slate-500 dark:text-slate-400">Student Report Card</p>
       </div>
-      <div className="mb-4 flex justify-between text-sm">
+      <div className="mb-1 flex justify-between text-sm">
         <span>
           <span className="text-slate-500 dark:text-slate-400">Student:</span> <strong>{student.full_name}</strong>
         </span>
         <span>
-          <span className="text-slate-500 dark:text-slate-400">Overall:</span> <strong>{overall}%</strong>
+          <span className="text-slate-500 dark:text-slate-400">{subjectScoped ? 'Your subject overall:' : 'Overall:'}</span>{' '}
+          <strong>{overall}%</strong>
         </span>
       </div>
+      {subjectScoped && (
+        <p className="mb-3 text-xs text-amber-600 dark:text-amber-400">
+          Showing only the subject(s) you teach — not the student's full cross-subject average.
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="text-sm text-slate-400 dark:text-slate-500">No exam results recorded yet.</p>
       ) : (

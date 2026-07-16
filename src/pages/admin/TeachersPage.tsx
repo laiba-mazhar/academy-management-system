@@ -383,7 +383,7 @@ export function TeachersPage() {
       {deleteTarget && (
         <ConfirmDialog
           title="Delete teacher"
-          message={`Delete ${deleteTarget.full_name}'s account? This removes their login, subject assignments, and timetable slots.`}
+          message={`Delete ${deleteTarget.full_name}'s account? This removes their login, subject assignments, and timetable slots. This is blocked if they have any salary or attendance records on file — mark them as 'left' instead to preserve that history.`}
           confirmLabel={deleting ? 'Deleting...' : 'Delete'}
           danger
           onCancel={() => setDeleteTarget(null)}

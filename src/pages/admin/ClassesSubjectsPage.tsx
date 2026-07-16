@@ -99,7 +99,7 @@ export function ClassesSubjectsPage() {
   async function handleDeleteClass() {
     if (!deleteClass) return
     const { error } = await supabase.from('classes').delete().eq('id', deleteClass.id)
-    if (error) show(error.message, 'error')
+    if (error) show(friendlyError(error.message), 'error')
     else {
       show('Class deleted.')
       load()
@@ -133,7 +133,7 @@ export function ClassesSubjectsPage() {
   async function handleDeleteSubject() {
     if (!deleteSubject) return
     const { error } = await supabase.from('subjects').delete().eq('id', deleteSubject.id)
-    if (error) show(error.message, 'error')
+    if (error) show(friendlyError(error.message), 'error')
     else {
       show('Subject deleted.')
       load()
@@ -393,7 +393,7 @@ export function ClassesSubjectsPage() {
       {deleteClass && (
         <ConfirmDialog
           title="Delete class"
-          message={`Delete ${deleteClass.name}? Its subjects, timetable slots, and exams will also be deleted. Students in this class become unassigned.`}
+          message={`Delete ${deleteClass.name}? Its subjects, question bank, and timetable slots will also be deleted, and students in this class become unassigned. This is blocked if the class has any fee invoices, attendance records, or exams on file — those must be handled first.`}
           confirmLabel="Delete"
           danger
           onCancel={() => setDeleteClass(null)}
@@ -404,7 +404,7 @@ export function ClassesSubjectsPage() {
       {deleteSubject && (
         <ConfirmDialog
           title="Delete subject"
-          message={`Delete ${deleteSubject.name}? Its questions, exams, and timetable slots will also be deleted.`}
+          message={`Delete ${deleteSubject.name}? Its question bank and timetable slots will also be deleted. This is blocked if the subject has any exams or a course breakdown plan on file — those must be handled first.`}
           confirmLabel="Delete"
           danger
           onCancel={() => setDeleteSubject(null)}

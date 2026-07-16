@@ -4,7 +4,7 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Input'
-import { currentMonthValue, formatCurrency, formatDate, formatMonth, monthValueToDate, shiftMonthValue, todayLocalDate } from '@/lib/utils'
+import { currentMonthValue, effectiveFee, formatCurrency, formatDate, formatMonth, monthValueToDate, netInvoiceAmount, shiftMonthValue, todayLocalDate } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import type { Class, Invoice, Student } from '@/types/database'
 
@@ -52,11 +52,6 @@ export function FeeChallanPage() {
     [classes]
   )
 
-  function effectiveFee(s: Student): number {
-    if (s.fee_override !== null && s.fee_override !== undefined) return s.fee_override
-    return s.class_id ? classById.get(s.class_id)?.fee_amount ?? 0 : 0
-  }
-
   const filtered = students.filter((s) => {
     const cls = s.class_id ? classById.get(s.class_id) : undefined
     if (classFilter !== 'all' && s.class_id !== classFilter) return false
@@ -77,19 +72,19 @@ export function FeeChallanPage() {
   const currentMonth = monthValueToDate(currentMonthValue())
 
   // "Remaining" = the full outstanding balance across every month that's ever
-  // been invoiced, plus unpaid one-time fees (gross, before any discount).
-  // "Discount" applies to what's due right now (this month's invoice) and is
-  // admin-editable. "To Be Paid" = this month's due amount + one-time fees,
-  // minus that discount.
+  // been invoiced (each invoice already netted against its own discount),
+  // plus unpaid one-time fees. "Discount" shown/edited here is specifically
+  // this month's invoice discount. "To Be Paid" = this month's net due amount
+  // + one-time fees.
   function feeSummary(student: Student) {
     const studentInvoices = invoicesByStudent.get(student.id) ?? []
     const oneTimeFees = (student.admission_fee_paid ? 0 : student.admission_fee_amount) + (student.security_fee_paid ? 0 : student.security_fee_amount)
     const thisMonthInvoice = studentInvoices.find((i) => i.month === currentMonth)
-    const grossDue = (thisMonthInvoice && thisMonthInvoice.status !== 'paid' ? thisMonthInvoice.amount : 0) + oneTimeFees
     const discount = thisMonthInvoice?.discount ?? 0
-    const toBePaid = Math.max(0, grossDue - discount)
+    const toBePaid =
+      (thisMonthInvoice && thisMonthInvoice.status !== 'paid' ? netInvoiceAmount(thisMonthInvoice) : 0) + oneTimeFees
     const remaining =
-      studentInvoices.filter((i) => i.status !== 'paid').reduce((sum, i) => sum + i.amount, 0) + oneTimeFees
+      studentInvoices.filter((i) => i.status !== 'paid').reduce((sum, i) => sum + netInvoiceAmount(i), 0) + oneTimeFees
     return { discount, toBePaid, remaining }
   }
 
@@ -217,7 +212,7 @@ export function FeeChallanPage() {
         student_id: student.id,
         class_id: student.class_id,
         month,
-        amount: effectiveFee(student),
+        amount: effectiveFee(student, classById),
         status: 'unpaid',
         due_date: defaultDue,
       })
@@ -397,11 +392,11 @@ export function FeeChallanPage() {
                         type="number"
                         min="0"
                         step="0.01"
-                        value={feeDrafts[s.id] ?? String(effectiveFee(s))}
+                        value={feeDrafts[s.id] ?? String(effectiveFee(s, classById))}
                         onChange={(e) => setFeeDrafts({ ...feeDrafts, [s.id]: e.target.value })}
                         className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
                       />
-                      {feeDrafts[s.id] !== undefined && feeDrafts[s.id] !== String(effectiveFee(s)) && (
+                      {feeDrafts[s.id] !== undefined && feeDrafts[s.id] !== String(effectiveFee(s, classById)) && (
                         <button onClick={() => saveFeeOverride(s)} className="text-xs text-brand-600 hover:underline dark:text-gold-400">
                           Save
                         </button>

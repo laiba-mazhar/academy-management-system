@@ -40,10 +40,7 @@ export function ResetPassword() {
       return
     }
 
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({ must_reset_password: false })
-      .eq('id', session!.user.id)
+    const { error: profileError } = await supabase.rpc('clear_must_reset_password')
 
     setSubmitting(false)
     if (profileError) {

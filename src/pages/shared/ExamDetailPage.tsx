@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
@@ -19,8 +19,11 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<Set<string>>(new Set())
   const [students, setStudents] = useState<Student[]>([])
   const [results, setResults] = useState<Record<string, string>>({})
+  const [savedResults, setSavedResults] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [savingMarks, setSavingMarks] = useState(false)
+
+  const marksDirty = JSON.stringify(results) !== JSON.stringify(savedResults)
 
   async function load() {
     if (!examId) return
@@ -53,6 +56,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
       const map: Record<string, string> = {}
       for (const r of resultsRes.data as ExamResult[]) map[r.student_id] = String(r.marks_obtained)
       setResults(map)
+      setSavedResults(map)
     }
     setLoading(false)
   }
@@ -62,41 +66,70 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examId])
 
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (!marksDirty) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [marksDirty])
+
+  function handleBackClick(e: MouseEvent) {
+    if (marksDirty && !window.confirm('You have unsaved marks. Leave without saving?')) {
+      e.preventDefault()
+    }
+  }
+
   const selectedMarksTotal = useMemo(
     () => questions.filter((q) => selectedQuestionIds.has(q.id)).reduce((sum, q) => sum + q.marks, 0),
     [questions, selectedQuestionIds]
   )
 
+  // Marks Entry stays reachable once results already exist, even if every
+  // paper question later gets deselected — otherwise previously saved marks
+  // become invisible without actually being deleted.
+  const hasPaperOrResults = selectedQuestionIds.size > 0 || Object.keys(savedResults).length > 0
+
   async function toggleQuestion(question: Question) {
-    const isSelected = selectedQuestionIds.has(question.id)
-    if (isSelected) {
-      const { error } = await supabase
-        .from('exam_questions')
-        .delete()
-        .eq('exam_id', examId!)
-        .eq('question_id', question.id)
-      if (error) {
-        show(error.message, 'error')
-        return
-      }
-    } else {
-      const { error } = await supabase.from('exam_questions').insert({ exam_id: examId!, question_id: question.id })
-      if (error) {
-        show(error.message, 'error')
-        return
-      }
+    const wasSelected = selectedQuestionIds.has(question.id)
+
+    // Update synchronously first so a second rapid click reads the latest
+    // selection instead of a stale pre-network-call snapshot.
+    setSelectedQuestionIds((prev) => {
+      const next = new Set(prev)
+      if (wasSelected) next.delete(question.id)
+      else next.add(question.id)
+      return next
+    })
+
+    const { error } = wasSelected
+      ? await supabase.from('exam_questions').delete().eq('exam_id', examId!).eq('question_id', question.id)
+      : await supabase.from('exam_questions').insert({ exam_id: examId!, question_id: question.id })
+
+    if (error) {
+      // A duplicate-insert (23505) means another click already selected this
+      // question — treat that as success instead of reverting/erroring.
+      if (!wasSelected && error.code === '23505') return
+      show(error.message, 'error')
+      // Roll back the optimistic update since the write didn't actually happen.
+      setSelectedQuestionIds((prev) => {
+        const next = new Set(prev)
+        if (wasSelected) next.add(question.id)
+        else next.delete(question.id)
+        return next
+      })
     }
-    const next = new Set(selectedQuestionIds)
-    if (isSelected) next.delete(question.id)
-    else next.add(question.id)
-    setSelectedQuestionIds(next)
-    if (next.size === 0) setTab('paper')
   }
 
   async function handleSaveMarks() {
     if (!exam) return
-    if (selectedQuestionIds.size === 0) {
-      show('Build the exam paper (select at least one question) before entering marks.', 'error')
+    if (selectedMarksTotal !== exam.total_marks) {
+      show(
+        `Selected questions total ${selectedMarksTotal} marks but the exam is set to ${exam.total_marks} — adjust the paper or the exam's total marks before saving.`,
+        'error'
+      )
       return
     }
     const invalid = students.find((s) => {
@@ -127,6 +160,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
       show(friendlyError(error.message), 'error')
       return
     }
+    setSavedResults(results)
     show('Marks saved.')
   }
 
@@ -142,7 +176,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link to={basePath} className="no-print text-sm text-brand-600 hover:underline">
+          <Link to={basePath} onClick={handleBackClick} className="no-print text-sm text-brand-600 hover:underline">
             ← Back to exams
           </Link>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-50">{exam.name}</h1>
@@ -158,12 +192,12 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
             Exam Paper
           </button>
           <button
-            onClick={() => selectedQuestionIds.size > 0 && setTab('marks')}
-            disabled={selectedQuestionIds.size === 0}
-            title={selectedQuestionIds.size === 0 ? 'Select at least one question in the Exam Paper tab first' : undefined}
+            onClick={() => hasPaperOrResults && setTab('marks')}
+            disabled={!hasPaperOrResults}
+            title={!hasPaperOrResults ? 'Select at least one question in the Exam Paper tab first' : undefined}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               tab === 'marks' ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'
-            } ${selectedQuestionIds.size === 0 ? 'cursor-not-allowed opacity-50' : ''}`}
+            } ${!hasPaperOrResults ? 'cursor-not-allowed opacity-50' : ''}`}
           >
             Marks Entry
           </button>
@@ -175,8 +209,15 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
           <div className="no-print space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Question Bank — {subject?.name}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p
+                className={`text-xs ${
+                  selectedMarksTotal === exam.total_marks
+                    ? 'text-slate-500 dark:text-slate-400'
+                    : 'font-medium text-amber-600 dark:text-amber-400'
+                }`}
+              >
                 Selected: {selectedMarksTotal} / {exam.total_marks} marks
+                {selectedMarksTotal !== exam.total_marks && ' — must match to save marks'}
               </p>
             </div>
             {questions.length === 0 ? (
@@ -246,6 +287,12 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
         </div>
       ) : (
         <div className="space-y-3">
+          {selectedQuestionIds.size === 0 && (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
+              No questions are currently selected for this paper — these are previously saved marks. Re-select the
+              exam's questions in the Exam Paper tab before you can save any changes here.
+            </p>
+          )}
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs uppercase text-slate-500 dark:text-slate-400">

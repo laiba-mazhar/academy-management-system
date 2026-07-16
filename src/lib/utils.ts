@@ -1,3 +1,10 @@
+import type { Class, Student } from '@/types/database'
+
+export function effectiveFee(student: Student, classById: Map<string, Class>): number {
+  if (student.fee_override !== null && student.fee_override !== undefined) return student.fee_override
+  return student.class_id ? classById.get(student.class_id)?.fee_amount ?? 0 : 0
+}
+
 export function isValidPhone(phone: string): boolean {
   const digitCount = (phone.match(/\d/g) ?? []).length
   return /^[0-9+\-\s()]+$/.test(phone) && digitCount >= 7 && digitCount <= 15
@@ -5,6 +12,10 @@ export function isValidPhone(phone: string): boolean {
 
 export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+export function netInvoiceAmount(invoice: { amount: number; discount: number }): number {
+  return Math.max(0, invoice.amount - invoice.discount)
 }
 
 export function formatCurrency(amount: number): string {

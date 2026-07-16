@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { EmptyState } from '@/components/EmptyState'
 import { CATEGORICAL, CHART_INK, SEQUENTIAL_BLUE, STATUS } from '@/lib/chartColors'
-import { currentMonthValue, formatCurrency, formatMonth, monthValueToDate, percentage } from '@/lib/utils'
+import { currentMonthValue, formatCurrency, formatMonth, monthValueToDate, netInvoiceAmount, percentage } from '@/lib/utils'
 import type { Attendance, Class, Exam, ExamResult, Invoice, Salary, Student } from '@/types/database'
 
 const PASS_THRESHOLD = 40
@@ -87,10 +87,10 @@ export function AdminDashboard() {
       .map((s) => ({ student: s, invoice: invoiceByStudent.get(s.id) ?? null }))
       .sort((a, b) => a.student.full_name.localeCompare(b.student.full_name))
   }, [students, monthInvoices])
-  const collectedThisMonth = monthInvoices.filter((i) => i.status === 'paid').reduce((sum, i) => sum + i.amount, 0)
+  const collectedThisMonth = monthInvoices.filter((i) => i.status === 'paid').reduce((sum, i) => sum + netInvoiceAmount(i), 0)
   const dueThisMonth = monthInvoices
     .filter((i) => i.status === 'unpaid' || i.status === 'overdue')
-    .reduce((sum, i) => sum + i.amount, 0)
+    .reduce((sum, i) => sum + netInvoiceAmount(i), 0)
 
   const overallAttendancePercent = useMemo(() => {
     if (attendance.length === 0) return 0
@@ -183,7 +183,9 @@ export function AdminDashboard() {
   const revenueVsExpenseTrend = useMemo(() => {
     const months = lastNMonths(6)
     return months.map((m) => {
-      const revenue = invoices.filter((i) => i.month === m && i.status === 'paid').reduce((sum, i) => sum + i.amount, 0)
+      const revenue = invoices
+        .filter((i) => i.month === m && i.status === 'paid')
+        .reduce((sum, i) => sum + netInvoiceAmount(i), 0)
       const expense = salaries.filter((s) => s.month === m).reduce((sum, s) => sum + s.amount, 0)
       return {
         month: formatMonth(m).replace(/\s\d{4}$/, ''),

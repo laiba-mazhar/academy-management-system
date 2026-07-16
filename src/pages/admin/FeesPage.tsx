@@ -4,7 +4,7 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Input'
-import { currentMonthValue, formatCurrency, formatDate, formatMonth, monthValueToDate, shiftMonthValue, todayLocalDate } from '@/lib/utils'
+import { currentMonthValue, effectiveFee, formatCurrency, formatDate, formatMonth, monthValueToDate, netInvoiceAmount, shiftMonthValue, todayLocalDate } from '@/lib/utils'
 import { friendlyError, edgeFunctionError } from '@/lib/errors'
 import type { Class, Invoice, Student } from '@/types/database'
 
@@ -72,10 +72,10 @@ export function FeesPage() {
   })
 
   const totals = useMemo(() => {
-    const collected = monthInvoices.filter((i) => i.status === 'paid').reduce((sum, i) => sum + i.amount, 0)
+    const collected = monthInvoices.filter((i) => i.status === 'paid').reduce((sum, i) => sum + netInvoiceAmount(i), 0)
     const due = monthInvoices
       .filter((i) => i.status === 'unpaid' || i.status === 'overdue')
-      .reduce((sum, i) => sum + i.amount, 0)
+      .reduce((sum, i) => sum + netInvoiceAmount(i), 0)
     return { collected, due }
   }, [monthInvoices])
 
@@ -84,8 +84,8 @@ export function FeesPage() {
     const byStudent = new Map<string, { paid: number; due: number; thisMonthStatus: string | null }>()
     for (const inv of invoices) {
       const entry = byStudent.get(inv.student_id) ?? { paid: 0, due: 0, thisMonthStatus: null }
-      if (inv.status === 'paid') entry.paid += inv.amount
-      else entry.due += inv.amount
+      if (inv.status === 'paid') entry.paid += netInvoiceAmount(inv)
+      else entry.due += netInvoiceAmount(inv)
       if (inv.month === currentMonth) entry.thisMonthStatus = inv.status
       byStudent.set(inv.student_id, entry)
     }
@@ -125,7 +125,7 @@ export function FeesPage() {
         student_id: s.id,
         class_id: s.class_id!,
         month,
-        amount: classById.get(s.class_id!)?.fee_amount ?? 0,
+        amount: effectiveFee(s, classById),
         status: 'unpaid' as const,
       }))
     if (rows.length === 0) {
@@ -490,6 +490,18 @@ export function FeesPage() {
                 <span className="text-slate-500 dark:text-slate-400">Amount</span>
                 <span className="font-semibold">{formatCurrency(receiptFor.amount)}</span>
               </div>
+              {receiptFor.discount > 0 && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">Discount</span>
+                    <span className="font-semibold">-{formatCurrency(receiptFor.discount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">Amount Paid</span>
+                    <span className="font-semibold">{formatCurrency(netInvoiceAmount(receiptFor))}</span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Status</span>
                 <span className="capitalize">{receiptFor.status}</span>
@@ -544,8 +556,8 @@ function FeeHistoryModal({
   onClose: () => void
   onOpenReceipt: (invoice: Invoice) => void
 }) {
-  const totalPaid = invoices.filter((i) => i.status === 'paid').reduce((sum, i) => sum + i.amount, 0)
-  const totalDue = invoices.filter((i) => i.status !== 'paid').reduce((sum, i) => sum + i.amount, 0)
+  const totalPaid = invoices.filter((i) => i.status === 'paid').reduce((sum, i) => sum + netInvoiceAmount(i), 0)
+  const totalDue = invoices.filter((i) => i.status !== 'paid').reduce((sum, i) => sum + netInvoiceAmount(i), 0)
 
   return (
     <Modal title={`Fee History — ${student.full_name}`} onClose={onClose} wide>

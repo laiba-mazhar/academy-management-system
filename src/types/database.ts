@@ -1,3 +1,9 @@
+// Insert shape for a table: every column stays required except the ones
+// listed in `Optional` (columns with a DB default, nullable columns, or
+// auto-generated ids/timestamps) — catches insert calls missing a genuinely
+// required column at compile time instead of only at the Postgres roundtrip.
+type InsertOf<Row, Optional extends keyof Row> = Omit<Row, Optional> & Partial<Pick<Row, Optional>>
+
 export type UserRole = 'admin' | 'teacher'
 export type EnrollmentStatus = 'enrolled' | 'inactive' | 'graduated' | 'left'
 export type TeacherStatus = 'active' | 'left'
@@ -181,55 +187,123 @@ export interface CourseBreakdownSlot {
 export interface Database {
   public: {
     Tables: {
-      profiles: { Row: Profile; Insert: Partial<Profile>; Update: Partial<Profile>; Relationships: [] }
-      teachers: { Row: Teacher; Insert: Partial<Teacher>; Update: Partial<Teacher>; Relationships: [] }
-      classes: { Row: Class; Insert: Partial<Class>; Update: Partial<Class>; Relationships: [] }
-      subjects: { Row: Subject; Insert: Partial<Subject>; Update: Partial<Subject>; Relationships: [] }
-      students: { Row: Student; Insert: Partial<Student>; Update: Partial<Student>; Relationships: [] }
-      invoices: { Row: Invoice; Insert: Partial<Invoice>; Update: Partial<Invoice>; Relationships: [] }
+      profiles: {
+        Row: Profile
+        Insert: InsertOf<Profile, 'phone' | 'must_reset_password' | 'created_at'>
+        Update: Partial<Profile>
+        Relationships: []
+      }
+      teachers: {
+        Row: Teacher
+        Insert: InsertOf<Teacher, 'monthly_salary' | 'status' | 'created_at'>
+        Update: Partial<Teacher>
+        Relationships: []
+      }
+      classes: {
+        Row: Class
+        Insert: InsertOf<Class, 'id' | 'fee_amount' | 'category' | 'created_at'>
+        Update: Partial<Class>
+        Relationships: []
+      }
+      subjects: {
+        Row: Subject
+        Insert: InsertOf<Subject, 'id' | 'teacher_id' | 'status' | 'requested_by' | 'created_at'>
+        Update: Partial<Subject>
+        Relationships: []
+      }
+      students: {
+        Row: Student
+        Insert: InsertOf<
+          Student,
+          | 'id'
+          | 'class_id'
+          | 'contact_phone'
+          | 'guardian_name'
+          | 'guardian_phone'
+          | 'guardian_email'
+          | 'enrollment_status'
+          | 'fee_override'
+          | 'admission_fee_amount'
+          | 'admission_fee_paid'
+          | 'security_fee_amount'
+          | 'security_fee_paid'
+          | 'created_at'
+        >
+        Update: Partial<Student>
+        Relationships: []
+      }
+      invoices: {
+        Row: Invoice
+        Insert: InsertOf<
+          Invoice,
+          'id' | 'discount' | 'status' | 'payment_date' | 'due_date' | 'reminder_sent_at' | 'created_at'
+        >
+        Update: Partial<Invoice>
+        Relationships: []
+      }
       attendance: {
         Row: Attendance
-        Insert: Partial<Attendance>
+        Insert: InsertOf<Attendance, 'id' | 'marked_by' | 'created_at'>
         Update: Partial<Attendance>
         Relationships: []
       }
       attendance_settings: {
         Row: AttendanceSettings
-        Insert: Partial<AttendanceSettings>
+        Insert: InsertOf<AttendanceSettings, 'id' | 'threshold_percent'>
         Update: Partial<AttendanceSettings>
         Relationships: []
       }
-      questions: { Row: Question; Insert: Partial<Question>; Update: Partial<Question>; Relationships: [] }
-      exams: { Row: Exam; Insert: Partial<Exam>; Update: Partial<Exam>; Relationships: [] }
+      questions: {
+        Row: Question
+        Insert: InsertOf<Question, 'id' | 'chapter' | 'created_by' | 'created_at'>
+        Update: Partial<Question>
+        Relationships: []
+      }
+      exams: {
+        Row: Exam
+        Insert: InsertOf<Exam, 'id' | 'created_by' | 'created_at'>
+        Update: Partial<Exam>
+        Relationships: []
+      }
       exam_questions: {
         Row: ExamQuestion
-        Insert: Partial<ExamQuestion>
+        Insert: ExamQuestion
         Update: Partial<ExamQuestion>
         Relationships: []
       }
       exam_results: {
         Row: ExamResult
-        Insert: Partial<ExamResult>
+        Insert: InsertOf<ExamResult, 'id' | 'entered_by' | 'created_at'>
         Update: Partial<ExamResult>
         Relationships: []
       }
-      timetable: { Row: Timetable; Insert: Partial<Timetable>; Update: Partial<Timetable>; Relationships: [] }
-      salaries: { Row: Salary; Insert: Partial<Salary>; Update: Partial<Salary>; Relationships: [] }
+      timetable: {
+        Row: Timetable
+        Insert: InsertOf<Timetable, 'id' | 'created_at'>
+        Update: Partial<Timetable>
+        Relationships: []
+      }
+      salaries: {
+        Row: Salary
+        Insert: InsertOf<Salary, 'id' | 'status' | 'paid_date' | 'created_at'>
+        Update: Partial<Salary>
+        Relationships: []
+      }
       teacher_attendance: {
         Row: TeacherAttendance
-        Insert: Partial<TeacherAttendance>
+        Insert: InsertOf<TeacherAttendance, 'id' | 'marked_by' | 'created_at'>
         Update: Partial<TeacherAttendance>
         Relationships: []
       }
       course_breakdowns: {
         Row: CourseBreakdown
-        Insert: Partial<CourseBreakdown>
+        Insert: InsertOf<CourseBreakdown, 'id' | 'created_by' | 'created_at' | 'updated_at'>
         Update: Partial<CourseBreakdown>
         Relationships: []
       }
       course_breakdown_slots: {
         Row: CourseBreakdownSlot
-        Insert: Partial<CourseBreakdownSlot>
+        Insert: InsertOf<CourseBreakdownSlot, 'id' | 'chapters' | 'is_done'>
         Update: Partial<CourseBreakdownSlot>
         Relationships: []
       }

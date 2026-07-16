@@ -5,6 +5,13 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   salaries_teacher_id_month_key: 'A salary record already exists for this teacher for that month.',
   attendance_student_id_date_key: 'Attendance for this student on this date was already recorded.',
   exam_results_exam_id_student_id_key: 'Marks for this student on this exam were already recorded.',
+  invoices_class_id_fkey: 'This class has fee invoices on record — those must be handled before it can be deleted.',
+  attendance_class_id_fkey: 'This class has attendance records on file — those must be handled before it can be deleted.',
+  exams_class_id_fkey: 'This class has exams recorded — those must be handled before it can be deleted.',
+  exams_subject_id_fkey: 'This subject has exams recorded — those must be handled before it can be deleted.',
+  course_breakdowns_subject_id_fkey: 'This subject has a course breakdown plan on file — delete that first.',
+  salaries_teacher_id_fkey: "This teacher has salary records on file — mark them as 'left' instead of deleting.",
+  teacher_attendance_teacher_id_fkey: "This teacher has attendance records on file — mark them as 'left' instead of deleting.",
 }
 
 export function friendlyError(message: string): string {
