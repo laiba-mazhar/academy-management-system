@@ -91,8 +91,8 @@ export function TeacherStudentDetailPage() {
             <tbody>
               {attendance.slice(0, 30).map((a) => (
                 <tr key={a.id} className="border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-                  <td className="px-2 py-2">{formatDate(a.date)}</td>
-                  <td className="px-2 py-2 capitalize">{a.status}</td>
+                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{formatDate(a.date)}</td>
+                  <td className="px-2 py-2 capitalize text-slate-600 dark:text-slate-300">{a.status}</td>
                 </tr>
               ))}
             </tbody>
