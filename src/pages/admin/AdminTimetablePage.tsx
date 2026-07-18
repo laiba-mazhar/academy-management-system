@@ -21,8 +21,9 @@ export function AdminTimetablePage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [loading, setLoading] = useState(true)
+  const [classFilter, setClassFilter] = useState('all')
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ teacher_id: '', subject_id: '', day_of_week: '1', start_time: '09:00', end_time: '10:00' })
+  const [form, setForm] = useState({ class_id: '', subject_id: '', day_of_week: '1', start_time: '09:00', end_time: '10:00' })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -57,31 +58,49 @@ export function AdminTimetablePage() {
   }, [])
 
   const teacherById = useMemo(() => new Map(teachers.map((t) => [t.id, t])), [teachers])
-  const assignableTeachers = useMemo(() => teachers.filter((t) => t.status !== 'left'), [teachers])
   const subjectById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
-  const teacherSubjects = subjects.filter((s) => s.teacher_id === form.teacher_id)
+  const classSubjects = useMemo(
+    () =>
+      subjects.filter(
+        (s) => s.class_id === form.class_id && s.teacher_id && teacherById.get(s.teacher_id)?.status !== 'left'
+      ),
+    [subjects, form.class_id, teacherById]
+  )
+  const selectedSubject = subjectById.get(form.subject_id)
+  const selectedSubjectTeacher = selectedSubject?.teacher_id ? teacherById.get(selectedSubject.teacher_id) : undefined
+
+  const filteredSlots = useMemo(
+    () => (classFilter === 'all' ? slots : slots.filter((s) => s.class_id === classFilter)),
+    [slots, classFilter]
+  )
 
   const slotsByDay = useMemo(() => {
     const map = new Map<number, Timetable[]>()
-    for (const s of slots) {
+    for (const s of filteredSlots) {
       const list = map.get(s.day_of_week) ?? []
       list.push(s)
       map.set(s.day_of_week, list)
     }
     for (const list of map.values()) list.sort((a, b) => a.start_time.localeCompare(b.start_time))
     return map
-  }, [slots])
+  }, [filteredSlots])
 
   function openCreate() {
-    setForm({ teacher_id: '', subject_id: '', day_of_week: '1', start_time: '09:00', end_time: '10:00' })
+    setForm({
+      class_id: classFilter !== 'all' ? classFilter : classes[0]?.id ?? '',
+      subject_id: '',
+      day_of_week: '1',
+      start_time: '09:00',
+      end_time: '10:00',
+    })
     setError(null)
     setShowForm(true)
   }
 
   async function handleSave() {
-    if (!form.teacher_id || !form.subject_id) {
-      setError('Teacher and subject are required.')
+    if (!form.class_id || !form.subject_id) {
+      setError('Class and subject are required.')
       return
     }
     const startMin = timeToMinutes(form.start_time)
@@ -92,16 +111,17 @@ export function AdminTimetablePage() {
     }
     const day = Number(form.day_of_week)
     const subject = subjectById.get(form.subject_id)
-    if (!subject) {
-      setError('Pick a valid subject.')
+    if (!subject || !subject.teacher_id) {
+      setError('Pick a valid subject with an assigned teacher.')
       return
     }
+    const teacherId = subject.teacher_id
 
     const conflict = slots.find((s) => {
       if (s.day_of_week !== day) return false
       const overlaps = startMin < timeToMinutes(s.end_time) && endMin > timeToMinutes(s.start_time)
       if (!overlaps) return false
-      return s.teacher_id === form.teacher_id || s.class_id === subject.class_id
+      return s.teacher_id === teacherId || s.class_id === subject.class_id
     })
     if (conflict) {
       setError('This overlaps with an existing slot for that teacher or class on the same day.')
@@ -110,7 +130,7 @@ export function AdminTimetablePage() {
 
     setSaving(true)
     const { error } = await supabase.from('timetable').insert({
-      teacher_id: form.teacher_id,
+      teacher_id: teacherId,
       class_id: subject.class_id,
       subject_id: form.subject_id,
       day_of_week: day,
@@ -136,12 +156,16 @@ export function AdminTimetablePage() {
     }
   }
 
+  const selectedClassName = classFilter !== 'all' ? classById.get(classFilter)?.name : undefined
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Timetable</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Weekly schedule across all classes.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {selectedClassName ? `Weekly schedule for ${selectedClassName}.` : 'Weekly schedule across all classes.'}
+          </p>
         </div>
         <div className="no-print flex gap-2">
           <Button variant="secondary" onClick={() => window.print()}>
@@ -151,8 +175,23 @@ export function AdminTimetablePage() {
         </div>
       </div>
 
+      <div className="no-print rounded-xl border border-gold-400/40 bg-white dark:border-gold-500/20 dark:bg-slate-800 p-4">
+        <Field label="View timetable for">
+          <Select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="text-base font-medium sm:max-w-xs">
+            <option value="all">All classes</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+
       <div className="print-area space-y-4">
-        <h2 className="hidden text-lg font-semibold print:block">Class Timetable</h2>
+        <h2 className="hidden text-lg font-semibold print:block">
+          Class Timetable{selectedClassName ? ` — ${selectedClassName}` : ''}
+        </h2>
         {loading ? (
           <p className="text-slate-400 dark:text-slate-500">Loading...</p>
         ) : (
@@ -164,41 +203,43 @@ export function AdminTimetablePage() {
                 <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
                   {dayName}
                 </div>
-                <table className="w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
-                    <tr>
-                      <th className="px-4 py-2">Time</th>
-                      <th className="px-4 py-2">Class</th>
-                      <th className="px-4 py-2">Subject</th>
-                      <th className="px-4 py-2">Teacher</th>
-                      <th className="no-print px-4 py-2" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {daySlots.map((s) => (
-                      <tr key={s.id} className="border-t border-slate-100 dark:border-slate-700/60">
-                        <td className="px-4 py-2">
-                          {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
-                        </td>
-                        <td className="px-4 py-2">{classById.get(s.class_id)?.name ?? '—'}</td>
-                        <td className="px-4 py-2">{subjectById.get(s.subject_id)?.name ?? '—'}</td>
-                        <td className="px-4 py-2">{teacherById.get(s.teacher_id)?.full_name ?? '—'}</td>
-                        <td className="no-print px-4 py-2 text-right">
-                          <button onClick={() => handleDelete(s.id)} className="text-sm text-red-600 dark:text-red-400 hover:underline">
-                            Remove
-                          </button>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[480px] text-left text-sm">
+                    <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
+                      <tr>
+                        <th className="whitespace-nowrap px-4 py-2">Time</th>
+                        {!selectedClassName && <th className="px-4 py-2">Class</th>}
+                        <th className="px-4 py-2">Subject</th>
+                        <th className="px-4 py-2">Teacher</th>
+                        <th className="no-print px-4 py-2" />
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {daySlots.map((s) => (
+                        <tr key={s.id} className="border-t border-slate-100 dark:border-slate-700/60">
+                          <td className="whitespace-nowrap px-4 py-2">
+                            {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
+                          </td>
+                          {!selectedClassName && <td className="px-4 py-2">{classById.get(s.class_id)?.name ?? '—'}</td>}
+                          <td className="px-4 py-2">{subjectById.get(s.subject_id)?.name ?? '—'}</td>
+                          <td className="px-4 py-2">{teacherById.get(s.teacher_id)?.full_name ?? '—'}</td>
+                          <td className="no-print px-4 py-2 text-right">
+                            <button onClick={() => handleDelete(s.id)} className="text-sm text-red-600 dark:text-red-400 hover:underline">
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )
           })
         )}
-        {!loading && slots.length === 0 && (
+        {!loading && filteredSlots.length === 0 && (
           <p className="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-6 py-16 text-center text-slate-400 dark:text-slate-500">
-            No timetable slots yet.
+            {selectedClassName ? `No timetable slots for ${selectedClassName} yet.` : 'No timetable slots yet.'}
           </p>
         )}
       </div>
@@ -206,15 +247,15 @@ export function AdminTimetablePage() {
       {showForm && (
         <Modal title="Add Timetable Slot" onClose={() => setShowForm(false)}>
           <div className="space-y-3">
-            <Field label="Teacher">
+            <Field label="Class">
               <Select
-                value={form.teacher_id}
-                onChange={(e) => setForm({ ...form, teacher_id: e.target.value, subject_id: '' })}
+                value={form.class_id}
+                onChange={(e) => setForm({ ...form, class_id: e.target.value, subject_id: '' })}
               >
-                <option value="">Select teacher...</option>
-                {assignableTeachers.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.full_name}
+                <option value="">Select class...</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
                   </option>
                 ))}
               </Select>
@@ -223,15 +264,23 @@ export function AdminTimetablePage() {
               <Select
                 value={form.subject_id}
                 onChange={(e) => setForm({ ...form, subject_id: e.target.value })}
-                disabled={!form.teacher_id}
+                disabled={!form.class_id}
               >
                 <option value="">Select subject...</option>
-                {teacherSubjects.map((s) => (
+                {classSubjects.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({classById.get(s.class_id)?.name ?? '?'})
+                    {s.name} — {teacherById.get(s.teacher_id!)?.full_name ?? 'Unknown teacher'}
                   </option>
                 ))}
               </Select>
+              {form.class_id && classSubjects.length === 0 && (
+                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                  No subjects with an assigned teacher in this class yet. Assign one in Classes &amp; Subjects first.
+                </p>
+              )}
+              {selectedSubjectTeacher && (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Teacher: {selectedSubjectTeacher.full_name}</p>
+              )}
             </Field>
             <Field label="Day">
               <Select value={form.day_of_week} onChange={(e) => setForm({ ...form, day_of_week: e.target.value })}>

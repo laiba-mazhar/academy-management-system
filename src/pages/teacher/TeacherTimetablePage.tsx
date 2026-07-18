@@ -73,26 +73,28 @@ export function TeacherTimetablePage() {
                 <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
                   {dayName}
                 </div>
-                <table className="w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
-                    <tr>
-                      <th className="px-4 py-2">Time</th>
-                      <th className="px-4 py-2">Class</th>
-                      <th className="px-4 py-2">Subject</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {daySlots.map((s) => (
-                      <tr key={s.id} className="border-t border-slate-100 dark:border-slate-700/60">
-                        <td className="px-4 py-2">
-                          {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
-                        </td>
-                        <td className="px-4 py-2">{classById.get(s.class_id)?.name ?? '—'}</td>
-                        <td className="px-4 py-2">{subjectById.get(s.subject_id)?.name ?? '—'}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[360px] text-left text-sm">
+                    <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
+                      <tr>
+                        <th className="whitespace-nowrap px-4 py-2">Time</th>
+                        <th className="px-4 py-2">Class</th>
+                        <th className="px-4 py-2">Subject</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {daySlots.map((s) => (
+                        <tr key={s.id} className="border-t border-slate-100 dark:border-slate-700/60">
+                          <td className="whitespace-nowrap px-4 py-2">
+                            {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
+                          </td>
+                          <td className="px-4 py-2">{classById.get(s.class_id)?.name ?? '—'}</td>
+                          <td className="px-4 py-2">{subjectById.get(s.subject_id)?.name ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )
           })

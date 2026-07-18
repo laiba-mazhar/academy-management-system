@@ -24,7 +24,7 @@ export async function downloadAttendanceSheetPdf(params: {
 
   const textStartY = 8 + logoHeight + 6
   doc.setFontSize(14)
-  doc.text('Maktab Educational Institute', 105, textStartY, { align: 'center' })
+  doc.text('Maktab - The Educational Institute', 105, textStartY, { align: 'center' })
   doc.setFontSize(11)
   doc.setTextColor(100)
   doc.text('Attendance Sheet', 105, textStartY + 7, { align: 'center' })

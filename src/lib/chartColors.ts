@@ -48,5 +48,7 @@ export const TOOLTIP_STYLE = {
 
 // Pass to <Tooltip cursor={TOOLTIP_CURSOR} /> inside a BarChart so the
 // hover-highlight rectangle behind the bars also follows the theme instead of
-// Recharts' default flat gray.
+// Recharts' default flat gray. Unlike TOOLTIP_STYLE above, this `fill` is
+// spread onto an SVG <rect> as a plain attribute (not a `style` prop) —
+// evergreen browsers resolve var() there too, but it's a different mechanism.
 export const TOOLTIP_CURSOR = { fill: 'var(--tooltip-cursor)' }

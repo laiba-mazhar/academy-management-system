@@ -14,9 +14,26 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // when the browser closes, the storage adapter below checks a flag at every
 // read/write and redirects to sessionStorage instead — set via
 // setRememberMe() before signing in.
-let rememberMe = true
+//
+// The flag itself is mirrored into sessionStorage (not just kept in this
+// module variable) because a plain in-memory default would reset to `true`
+// on every page reload — which, for a "remember me: off" session actually
+// sitting in sessionStorage, would make the adapter look in the (empty)
+// localStorage instead and incorrectly treat a perfectly valid session as
+// logged out. Reading the mirrored flag on module load survives reloads
+// within the tab while still clearing naturally when the tab/browser closes.
+const REMEMBER_ME_KEY = 'ems-remember-me'
+
+function getStoredRememberMe(): boolean {
+  if (typeof window === 'undefined') return true
+  const stored = sessionStorage.getItem(REMEMBER_ME_KEY)
+  return stored === null ? true : stored === 'true'
+}
+
+let rememberMe = getStoredRememberMe()
 export function setRememberMe(remember: boolean) {
   rememberMe = remember
+  if (typeof window !== 'undefined') sessionStorage.setItem(REMEMBER_ME_KEY, String(remember))
 }
 
 const dynamicStorage = {

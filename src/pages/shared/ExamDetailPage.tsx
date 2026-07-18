@@ -159,20 +159,27 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
       setAddQuestionError(friendlyError(error?.message ?? 'Failed to add question.'))
       return
     }
+    // The question row now exists in the bank no matter what happens next —
+    // reflect that immediately and close the form so a link failure below can
+    // never leave it invisible, and a retry can never re-insert a duplicate.
     const question = data as Question
+    setQuestions((prev) => [question, ...prev])
+    setNewQuestion({ question_text: '', marks: '', chapter: '' })
+    setAddQuestionError(null)
+    setShowAddQuestion(false)
+
     const { error: linkError } = await supabase
       .from('exam_questions')
       .insert({ exam_id: exam.id, question_id: question.id })
     setAddingQuestion(false)
     if (linkError) {
-      setAddQuestionError(friendlyError(linkError.message))
+      show(
+        "Question added to the bank, but couldn't be selected onto this paper automatically — check the box next to it below.",
+        'error'
+      )
       return
     }
-    setQuestions((prev) => [question, ...prev])
     setSelectedQuestionIds((prev) => new Set(prev).add(question.id))
-    setNewQuestion({ question_text: '', marks: '', chapter: '' })
-    setAddQuestionError(null)
-    setShowAddQuestion(false)
     show('Question added to the bank and this paper.')
   }
 
@@ -302,6 +309,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                 <div className="flex justify-end gap-2">
                   <Button
                     variant="secondary"
+                    disabled={addingQuestion}
                     onClick={() => {
                       setShowAddQuestion(false)
                       setAddQuestionError(null)

@@ -8,8 +8,23 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 // a forced first-login reset does, but the account's must_reset_password flag
 // is false in that case — so a separate signal is needed to keep this page
 // open instead of bouncing the user straight to their dashboard.
+//
+// Supabase strips the recovery hash from the URL and fires PASSWORD_RECOVERY
+// only once, right after the link is first opened. A plain React state flag
+// would forget "we're in a recovery flow" the moment the tab reloads (a
+// refresh, or a backgrounded mobile tab getting reloaded) — before the user
+// has actually set a new password — which would then silently bounce them to
+// their dashboard with their password never changed. Mirroring the flag into
+// sessionStorage lets it survive a reload within the same tab, while still
+// clearing itself once the password is actually saved (or the tab closes).
+const RECOVERY_FLAG_KEY = 'ems-password-recovery'
+
 function hasRecoveryHash(): boolean {
   return typeof window !== 'undefined' && window.location.hash.includes('type=recovery')
+}
+
+function hasStoredRecoveryFlag(): boolean {
+  return typeof window !== 'undefined' && sessionStorage.getItem(RECOVERY_FLAG_KEY) === 'true'
 }
 
 export function ResetPassword() {
@@ -18,11 +33,14 @@ export function ResetPassword() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [isRecovery, setIsRecovery] = useState(hasRecoveryHash())
+  const [isRecovery, setIsRecovery] = useState(() => hasRecoveryHash() || hasStoredRecoveryFlag())
 
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setIsRecovery(true)
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecovery(true)
+        sessionStorage.setItem(RECOVERY_FLAG_KEY, 'true')
+      }
     })
     return () => listener.subscription.unsubscribe()
   }, [])
@@ -63,12 +81,13 @@ export function ResetPassword() {
       setError(profileError.message)
       return
     }
+    sessionStorage.removeItem(RECOVERY_FLAG_KEY)
     await refreshProfile()
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-cream-50 px-4 dark:bg-slate-900">
-      <div className="absolute right-6 top-6 z-10">
+    <div className="relative flex min-h-dvh items-center justify-center bg-cream-50 px-4 dark:bg-slate-900">
+      <div className="absolute right-4 z-10 sm:right-6" style={{ top: 'max(1rem, env(safe-area-inset-top))' }}>
         <ThemeToggle />
       </div>
       <div className="w-full max-w-sm rounded-2xl border border-gold-400/30 bg-white p-8 shadow-lg dark:border-gold-500/20 dark:bg-slate-800">
@@ -117,7 +136,10 @@ export function ResetPassword() {
           </button>
           <button
             type="button"
-            onClick={() => signOut()}
+            onClick={() => {
+              sessionStorage.removeItem(RECOVERY_FLAG_KEY)
+              signOut()
+            }}
             className="w-full text-center text-sm text-slate-500 transition-colors hover:text-brand-700 dark:text-slate-400 dark:hover:text-cream-100"
           >
             Sign out

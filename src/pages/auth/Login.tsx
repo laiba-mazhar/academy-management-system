@@ -120,20 +120,26 @@ export function Login() {
   }
 
   return (
-    <div className="relative flex min-h-screen bg-cream-50 dark:bg-slate-900">
-      <div className="absolute right-6 top-6 z-10">
+    <div className="relative flex min-h-dvh bg-cream-50 dark:bg-slate-900">
+      <div
+        className="absolute right-4 z-10 sm:right-6"
+        style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
+      >
         <ThemeToggle />
       </div>
-      <p className="absolute bottom-4 right-6 z-10 text-xs text-slate-400 dark:text-slate-500">
+      <p
+        className="absolute right-4 z-10 text-xs text-slate-400 dark:text-slate-500 sm:right-6"
+        style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      >
         Version {APP_VERSION}
       </p>
 
       <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 p-12 lg:flex">
         <div className="relative flex items-center gap-5">
-          <img src={logoUrl} alt="Maktab Educational Institute crest" className="h-24 w-auto" />
+          <img src={logoUrl} alt="Maktab - The Educational Institute crest" className="h-24 w-auto" />
           <div>
             <p className="font-serif text-4xl font-semibold tracking-wide text-gold-400">MAKTAB</p>
-            <p className="text-base text-cream-200/80">Educational Institute</p>
+            <p className="text-base text-cream-200/80">The Educational Institute</p>
           </div>
         </div>
         <div className="relative">
@@ -143,25 +149,25 @@ export function Login() {
             simplified in one system.
           </h1>
           <p className="mt-4 max-w-sm text-sm text-cream-200/80">
-            Maktab Educational Institute runs its entire academic and administrative life from this
+            Maktab - The Educational Institute runs its entire academic and administrative life from this
             one dashboard. Admissions, attendance, fees, examinations, salaries, and timetables stay
             connected in a single secure system, so staff always see accurate, current information
             without juggling spreadsheets or paper registers.
           </p>
         </div>
         <p className="relative text-xs text-cream-200/50">
-          &copy; {new Date().getFullYear()} Maktab Educational Institute
+          &copy; {new Date().getFullYear()} Maktab - The Educational Institute
         </p>
       </div>
 
       <div className="flex w-full flex-col items-center justify-center px-4 lg:w-1/2">
         <div className="w-full max-w-sm rounded-2xl border border-gold-400/30 bg-white p-8 shadow-lg dark:border-gold-500/20 dark:bg-slate-800">
           <div className="mb-6 flex flex-col items-center text-center lg:hidden">
-            <img src={logoUrl} alt="Maktab Educational Institute crest" className="mb-3 h-20 w-auto" />
+            <img src={logoUrl} alt="Maktab - The Educational Institute crest" className="mb-3 h-20 w-auto" />
             <p className="font-serif text-2xl font-semibold tracking-wide text-brand-700 dark:text-gold-400">
               MAKTAB
             </p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Educational Institute</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">The Educational Institute</p>
           </div>
           <h1 className="mb-1 text-xl font-semibold text-brand-800 dark:text-cream-50">Welcome back</h1>
           <p className="mb-6 text-sm text-slate-500 dark:text-slate-400">Sign in to continue</p>

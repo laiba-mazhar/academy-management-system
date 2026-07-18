@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { Select } from '@/components/ui/Input'
+import { Field, Select } from '@/components/ui/Input'
 import { DocumentLetterhead } from '@/components/DocumentLetterhead'
 import { currentMonthValue, effectiveFee, formatCurrency, formatDate, formatMonth, monthValueToDate, netInvoiceAmount, shiftMonthValue, todayLocalDate } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
@@ -139,6 +139,10 @@ export function FeeChallanPage() {
     const value = Number(draft)
     if (Number.isNaN(value) || value < 0) {
       show('Discount must be a non-negative number.', 'error')
+      return
+    }
+    if (value > invoice.amount) {
+      show('Discount cannot exceed the monthly fee amount.', 'error')
       return
     }
     const { error } = await supabase.from('invoices').update({ discount: value }).eq('id', invoice.id)
@@ -305,23 +309,27 @@ export function FeeChallanPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
-        <Select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="max-w-[180px]">
-          <option value="all">All classes</option>
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </Select>
-        <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="max-w-[180px]">
-          <option value="all">All categories</option>
-          {categories.map((cat) => (
-            <option key={cat} value={cat}>
-              {cat}
-            </option>
-          ))}
-        </Select>
+      <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2">
+        <Field label="Class">
+          <Select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
+            <option value="all">All classes</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Category / stream">
+          <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+            <option value="all">All categories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </Select>
+        </Field>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
@@ -578,12 +586,9 @@ export function FeeChallanPage() {
                     <span className="font-semibold">Total Due</span>
                     <span className="font-bold">
                       {formatCurrency(
-                        Math.max(
-                          0,
-                          (challanInvoice.status === 'paid' ? 0 : challanInvoice.amount - challanInvoice.discount) +
-                            (!challanFor.admission_fee_paid ? challanFor.admission_fee_amount : 0) +
-                            (!challanFor.security_fee_paid ? challanFor.security_fee_amount : 0)
-                        )
+                        (challanInvoice.status === 'paid' ? 0 : netInvoiceAmount(challanInvoice)) +
+                          (!challanFor.admission_fee_paid ? challanFor.admission_fee_amount : 0) +
+                          (!challanFor.security_fee_paid ? challanFor.security_fee_amount : 0)
                       )}
                     </span>
                   </div>

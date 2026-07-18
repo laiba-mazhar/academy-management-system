@@ -17,6 +17,7 @@ export function ClassesSubjectsPage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [teachers, setTeachers] = useState<TeacherOption[]>([])
   const [loading, setLoading] = useState(true)
+  const [subjectClassFilter, setSubjectClassFilter] = useState('all')
 
   const [classForm, setClassForm] = useState<{ id: string | null; name: string; fee_amount: string; category: string } | null>(
     null
@@ -68,6 +69,8 @@ export function ClassesSubjectsPage() {
   const assignableTeachers = useMemo(() => teachers.filter((t) => t.status !== 'left'), [teachers])
   const pendingSubjects = subjects.filter((s) => s.status === 'pending_approval')
   const activeSubjects = subjects.filter((s) => s.status === 'active')
+  const filteredSubjects =
+    subjectClassFilter === 'all' ? activeSubjects : activeSubjects.filter((s) => s.class_id === subjectClassFilter)
 
   async function saveClass() {
     if (!classForm || !classForm.name.trim()) {
@@ -244,17 +247,36 @@ export function ClassesSubjectsPage() {
       </section>
 
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Subjects</h2>
           <Button
-            onClick={() => setSubjectForm({ id: null, name: '', class_id: classes[0]?.id ?? '', teacher_id: '' })}
+            onClick={() =>
+              setSubjectForm({
+                id: null,
+                name: '',
+                class_id: subjectClassFilter !== 'all' ? subjectClassFilter : classes[0]?.id ?? '',
+                teacher_id: '',
+              })
+            }
             disabled={classes.length === 0}
           >
             + Add Subject
           </Button>
         </div>
+        {classes.length > 0 && (
+          <Field label="Filter by class">
+            <Select value={subjectClassFilter} onChange={(e) => setSubjectClassFilter(e.target.value)} className="sm:max-w-xs">
+              <option value="all">All classes</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[480px] text-left text-sm">
             <thead className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs uppercase text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-3">Subject</th>
@@ -264,14 +286,14 @@ export function ClassesSubjectsPage() {
               </tr>
             </thead>
             <tbody>
-              {activeSubjects.length === 0 ? (
+              {filteredSubjects.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
-                    No subjects yet.
+                    {subjectClassFilter === 'all' ? 'No subjects yet.' : 'No subjects for this class yet.'}
                   </td>
                 </tr>
               ) : (
-                activeSubjects.map((s) => (
+                filteredSubjects.map((s) => (
                   <tr key={s.id} className="border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
                     <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{s.name}</td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{classById.get(s.class_id)?.name ?? '—'}</td>
@@ -429,6 +451,13 @@ function PendingApprovalPanel({
   onReject: (subject: Subject) => void
 }) {
   const [picks, setPicks] = useState<Record<string, string>>({})
+  // The dropdown itself already excludes 'left' teachers via the filtered
+  // `teachers` prop — but defaulting to `s.requested_by` (whoever originally
+  // asked for the subject) could otherwise silently reintroduce one if they
+  // left after requesting it and nobody re-picks before clicking Approve.
+  const assignableIds = useMemo(() => new Set(teachers.map((t) => t.id)), [teachers])
+  const defaultPick = (subjectId: string, requestedBy: string | null) =>
+    picks[subjectId] ?? (requestedBy && assignableIds.has(requestedBy) ? requestedBy : '')
 
   return (
     <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -444,7 +473,7 @@ function PendingApprovalPanel({
             </div>
             <div className="flex items-center gap-2">
               <Select
-                value={picks[s.id] ?? s.requested_by ?? ''}
+                value={defaultPick(s.id, s.requested_by)}
                 onChange={(e) => setPicks({ ...picks, [s.id]: e.target.value })}
                 className="w-44"
               >
@@ -455,7 +484,7 @@ function PendingApprovalPanel({
                   </option>
                 ))}
               </Select>
-              <Button onClick={() => onApprove(s, picks[s.id] ?? s.requested_by ?? '')}>Approve</Button>
+              <Button onClick={() => onApprove(s, defaultPick(s.id, s.requested_by))}>Approve</Button>
               <Button variant="danger" onClick={() => onReject(s)}>
                 Reject
               </Button>

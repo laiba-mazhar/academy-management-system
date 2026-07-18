@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar, type NavItem } from './Sidebar'
 import { TopBar } from './TopBar'
@@ -16,12 +17,22 @@ const navItems: NavItem[] = [
 ]
 
 export function AdminLayout() {
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // The mobile drawer overlays the page — lock background scroll while it's open.
+  useEffect(() => {
+    document.body.style.overflow = sidebarOpen ? 'hidden' : ''
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [sidebarOpen])
+
   return (
-    <div className="flex min-h-screen">
-      <Sidebar title="Admin" items={navItems} />
-      <div className="flex flex-1 flex-col">
-        <TopBar />
-        <main className="flex-1 bg-cream-50 p-6 dark:bg-slate-900">
+    <div className="flex min-h-dvh">
+      <Sidebar title="Admin" items={navItems} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar onMenuClick={() => setSidebarOpen(true)} />
+        <main className="flex-1 overflow-x-hidden bg-cream-50 p-4 dark:bg-slate-900 sm:p-6">
           <Outlet />
         </main>
       </div>
