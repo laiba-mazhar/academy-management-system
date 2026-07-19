@@ -22,7 +22,7 @@ export function QuestionBankPage() {
   async function load() {
     setLoading(true)
     const [subjectsRes, classesRes, questionsRes] = await Promise.all([
-      supabase.from('subjects').select('*'),
+      supabase.from('subjects').select('*').eq('status', 'active'),
       supabase.from('classes').select('*'),
       supabase.from('questions').select('*').order('created_at', { ascending: false }),
     ])

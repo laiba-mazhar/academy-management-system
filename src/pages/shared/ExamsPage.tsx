@@ -23,7 +23,7 @@ export function ExamsPage() {
     setLoading(true)
     const [examsRes, subjectsRes, classesRes] = await Promise.all([
       supabase.from('exams').select('*').order('exam_date', { ascending: false }),
-      supabase.from('subjects').select('*'),
+      supabase.from('subjects').select('*').eq('status', 'active'),
       supabase.from('classes').select('*'),
     ])
     if (examsRes.error) show(examsRes.error.message, 'error')
