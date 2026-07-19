@@ -59,8 +59,20 @@
     visibility: visible;
   }
 
+  /* visibility:hidden keeps every hidden element's layout box (and height) in
+     place, so anything printed from inside a modal — where the rest of the
+     page (sidebar, tables, other rows) is still in the DOM behind it — pads
+     the document with extra blank pages below the actual content. Collapsing
+     the body's own height removes that padding, and using `fixed` instead of
+     `absolute` keeps the print area from being clipped by that collapse (it's
+     positioned against the viewport, not the now-zero-height body). */
+  body {
+    height: 0;
+    overflow: hidden;
+  }
+
   .print-area {
-    position: absolute;
+    position: fixed;
     left: 0;
     top: 0;
     width: 100%;

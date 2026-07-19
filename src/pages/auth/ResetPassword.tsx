@@ -31,9 +31,19 @@ export function ResetPassword() {
   const { session, profile, loading, refreshProfile, signOut } = useAuth()
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [fullName, setFullName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [isRecovery, setIsRecovery] = useState(() => hasRecoveryHash() || hasStoredRecoveryFlag())
+
+  // Only the actual forced first-login/admin-reset case asks for a name —
+  // a plain "forgot password" recovery on an already-named account shouldn't
+  // add extra friction to a routine password reset.
+  const isFirstLogin = profile?.must_reset_password === true
+
+  useEffect(() => {
+    if (profile?.full_name) setFullName((prev) => prev || profile.full_name)
+  }, [profile])
 
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
@@ -65,6 +75,10 @@ export function ResetPassword() {
       setError('Passwords do not match.')
       return
     }
+    if (isFirstLogin && !fullName.trim()) {
+      setError('Enter your full name.')
+      return
+    }
 
     setSubmitting(true)
     const { error: updateError } = await supabase.auth.updateUser({ password })
@@ -72,6 +86,18 @@ export function ResetPassword() {
       setSubmitting(false)
       setError(updateError.message)
       return
+    }
+
+    if (isFirstLogin) {
+      const { error: nameError } = await supabase
+        .from('profiles')
+        .update({ full_name: fullName.trim() })
+        .eq('id', session!.user.id)
+      if (nameError) {
+        setSubmitting(false)
+        setError(nameError.message)
+        return
+      }
     }
 
     const { error: profileError } = await supabase.rpc('clear_must_reset_password')
@@ -98,6 +124,22 @@ export function ResetPassword() {
             : 'This is your first login, or an admin reset your password. Choose a new password to continue.'}
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {isFirstLogin && (
+            <div>
+              <label htmlFor="fullName" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Full name
+              </label>
+              <input
+                id="fullName"
+                type="text"
+                required
+                autoComplete="name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm transition-colors focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900 dark:text-cream-50"
+              />
+            </div>
+          )}
           <div>
             <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
               New password

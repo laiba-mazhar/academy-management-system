@@ -1,9 +1,44 @@
+import { useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { useToast } from '@/context/ToastContext'
+import { supabase } from '@/lib/supabase'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { Modal } from '@/components/ui/Modal'
+import { Button } from '@/components/ui/Button'
+import { Field, Input } from '@/components/ui/Input'
 import logoUrl from '@/assets/maktab_logo_transparent.png'
 
 export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
-  const { profile, signOut } = useAuth()
+  const { profile, refreshProfile, signOut } = useAuth()
+  const { show } = useToast()
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [nameError, setNameError] = useState<string | null>(null)
+  const [savingName, setSavingName] = useState(false)
+
+  function openEditName() {
+    setNameDraft(profile?.full_name ?? '')
+    setNameError(null)
+    setEditingName(true)
+  }
+
+  async function saveName() {
+    if (!profile) return
+    if (!nameDraft.trim()) {
+      setNameError('Name is required.')
+      return
+    }
+    setSavingName(true)
+    const { error } = await supabase.from('profiles').update({ full_name: nameDraft.trim() }).eq('id', profile.id)
+    setSavingName(false)
+    if (error) {
+      setNameError(error.message)
+      return
+    }
+    await refreshProfile()
+    setEditingName(false)
+    show('Name updated.')
+  }
 
   return (
     <header
@@ -28,7 +63,13 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        <span className="hidden text-sm text-brand-800 dark:text-cream-100 sm:inline">{profile?.full_name}</span>
+        <button
+          onClick={openEditName}
+          title="Edit your name"
+          className="hidden rounded-md px-1.5 py-1 text-sm text-brand-800 transition-colors hover:bg-brand-50 dark:text-cream-100 dark:hover:bg-slate-700 sm:inline"
+        >
+          {profile?.full_name}
+        </button>
         <ThemeToggle />
         <button
           onClick={() => signOut()}
@@ -37,6 +78,25 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
           Sign out
         </button>
       </div>
+
+      {editingName && (
+        <Modal title="Edit your name" onClose={() => setEditingName(false)}>
+          <div className="space-y-3">
+            <Field label="Full name">
+              <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} autoFocus />
+            </Field>
+            {nameError && <p className="text-sm text-red-600 dark:text-red-400">{nameError}</p>}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => setEditingName(false)}>
+                Cancel
+              </Button>
+              <Button onClick={saveName} disabled={savingName}>
+                {savingName ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </header>
   )
 }

@@ -21,7 +21,7 @@ export function AdminTimetablePage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [loading, setLoading] = useState(true)
-  const [classFilter, setClassFilter] = useState('all')
+  const [selectedClassId, setSelectedClassId] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ class_id: '', subject_id: '', day_of_week: '1', start_time: '09:00', end_time: '10:00' })
   const [error, setError] = useState<string | null>(null)
@@ -71,8 +71,8 @@ export function AdminTimetablePage() {
   const selectedSubjectTeacher = selectedSubject?.teacher_id ? teacherById.get(selectedSubject.teacher_id) : undefined
 
   const filteredSlots = useMemo(
-    () => (classFilter === 'all' ? slots : slots.filter((s) => s.class_id === classFilter)),
-    [slots, classFilter]
+    () => (selectedClassId ? slots.filter((s) => s.class_id === selectedClassId) : []),
+    [slots, selectedClassId]
   )
 
   const slotsByDay = useMemo(() => {
@@ -88,7 +88,7 @@ export function AdminTimetablePage() {
 
   function openCreate() {
     setForm({
-      class_id: classFilter !== 'all' ? classFilter : classes[0]?.id ?? '',
+      class_id: selectedClassId || classes[0]?.id || '',
       subject_id: '',
       day_of_week: '1',
       start_time: '09:00',
@@ -156,7 +156,7 @@ export function AdminTimetablePage() {
     }
   }
 
-  const selectedClassName = classFilter !== 'all' ? classById.get(classFilter)?.name : undefined
+  const selectedClassName = selectedClassId ? classById.get(selectedClassId)?.name : undefined
 
   return (
     <div className="space-y-4">
@@ -164,87 +164,93 @@ export function AdminTimetablePage() {
         <div>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Timetable</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {selectedClassName ? `Weekly schedule for ${selectedClassName}.` : 'Weekly schedule across all classes.'}
+            {selectedClassName ? `Weekly schedule for ${selectedClassName}.` : 'Pick a class below to view its weekly schedule.'}
           </p>
         </div>
         <div className="no-print flex gap-2">
-          <Button variant="secondary" onClick={() => window.print()}>
+          <Button variant="secondary" onClick={() => window.print()} disabled={!selectedClassId}>
             Print
           </Button>
           <Button onClick={openCreate}>+ Add Slot</Button>
         </div>
       </div>
 
-      <div className="no-print rounded-xl border border-gold-400/40 bg-white dark:border-gold-500/20 dark:bg-slate-800 p-4">
-        <Field label="View timetable for">
-          <Select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="text-base font-medium sm:max-w-xs">
-            <option value="all">All classes</option>
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
+      <div className="no-print flex flex-wrap gap-2">
+        {classes.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => setSelectedClassId(c.id)}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+              selectedClassId === c.id
+                ? 'border-brand-600 bg-brand-600 text-white'
+                : 'border-slate-300 bg-white text-slate-700 hover:border-brand-400 hover:bg-brand-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            {c.name}
+          </button>
+        ))}
+        {classes.length === 0 && !loading && (
+          <p className="text-sm text-slate-400 dark:text-slate-500">No classes yet — add one in Classes &amp; Subjects.</p>
+        )}
       </div>
 
-      <div className="print-area space-y-4">
-        <h2 className="hidden text-lg font-semibold print:block">
-          Class Timetable{selectedClassName ? ` — ${selectedClassName}` : ''}
-        </h2>
-        {loading ? (
-          <p className="text-slate-400 dark:text-slate-500">Loading...</p>
-        ) : (
-          DAY_NAMES.map((dayName, dayIdx) => {
-            const daySlots = slotsByDay.get(dayIdx) ?? []
-            if (daySlots.length === 0) return null
-            return (
-              <div key={dayIdx} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-                <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  {dayName}
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[480px] text-left text-sm">
-                    <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
-                      <tr>
-                        <th className="whitespace-nowrap px-4 py-2">Time</th>
-                        {!selectedClassName && <th className="px-4 py-2">Class</th>}
-                        <th className="px-4 py-2">Subject</th>
-                        <th className="px-4 py-2">Teacher</th>
-                        <th className="no-print px-4 py-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {daySlots.map((s) => (
-                        <tr key={s.id} className="border-t border-slate-100 dark:border-slate-700/60">
-                          <td className="whitespace-nowrap px-4 py-2 text-slate-600 dark:text-slate-300">
-                            {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
-                          </td>
-                          {!selectedClassName && (
-                            <td className="px-4 py-2 text-slate-600 dark:text-slate-300">{classById.get(s.class_id)?.name ?? '—'}</td>
-                          )}
-                          <td className="px-4 py-2 text-slate-600 dark:text-slate-300">{subjectById.get(s.subject_id)?.name ?? '—'}</td>
-                          <td className="px-4 py-2 text-slate-600 dark:text-slate-300">{teacherById.get(s.teacher_id)?.full_name ?? '—'}</td>
-                          <td className="no-print px-4 py-2 text-right">
-                            <button onClick={() => handleDelete(s.id)} className="text-sm text-red-600 dark:text-red-400 hover:underline">
-                              Remove
-                            </button>
-                          </td>
+      {!selectedClassName ? (
+        <p className="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-6 py-16 text-center text-slate-400 dark:text-slate-500">
+          Select a class above to view its timetable.
+        </p>
+      ) : (
+        <div className="print-area space-y-4">
+          <h2 className="hidden text-lg font-semibold print:block">Class Timetable — {selectedClassName}</h2>
+          {loading ? (
+            <p className="text-slate-400 dark:text-slate-500">Loading...</p>
+          ) : (
+            DAY_NAMES.map((dayName, dayIdx) => {
+              const daySlots = slotsByDay.get(dayIdx) ?? []
+              if (daySlots.length === 0) return null
+              return (
+                <div key={dayIdx} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                  <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    {dayName}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[480px] text-left text-sm">
+                      <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
+                        <tr>
+                          <th className="whitespace-nowrap px-4 py-2">Time</th>
+                          <th className="px-4 py-2">Subject</th>
+                          <th className="px-4 py-2">Teacher</th>
+                          <th className="no-print px-4 py-2" />
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {daySlots.map((s) => (
+                          <tr key={s.id} className="border-t border-slate-100 dark:border-slate-700/60">
+                            <td className="whitespace-nowrap px-4 py-2 text-slate-600 dark:text-slate-300">
+                              {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
+                            </td>
+                            <td className="px-4 py-2 text-slate-600 dark:text-slate-300">{subjectById.get(s.subject_id)?.name ?? '—'}</td>
+                            <td className="px-4 py-2 text-slate-600 dark:text-slate-300">{teacherById.get(s.teacher_id)?.full_name ?? '—'}</td>
+                            <td className="no-print px-4 py-2 text-right">
+                              <button onClick={() => handleDelete(s.id)} className="text-sm text-red-600 dark:text-red-400 hover:underline">
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )
-          })
-        )}
-        {!loading && filteredSlots.length === 0 && (
-          <p className="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-6 py-16 text-center text-slate-400 dark:text-slate-500">
-            {selectedClassName ? `No timetable slots for ${selectedClassName} yet.` : 'No timetable slots yet.'}
-          </p>
-        )}
-      </div>
+              )
+            })
+          )}
+          {!loading && filteredSlots.length === 0 && (
+            <p className="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-6 py-16 text-center text-slate-400 dark:text-slate-500">
+              No timetable slots for {selectedClassName} yet.
+            </p>
+          )}
+        </div>
+      )}
 
       {showForm && (
         <Modal title="Add Timetable Slot" onClose={() => setShowForm(false)}>
