@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
@@ -17,7 +17,6 @@ export function ClassesSubjectsPage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [teachers, setTeachers] = useState<TeacherOption[]>([])
   const [loading, setLoading] = useState(true)
-  const [subjectClassFilter, setSubjectClassFilter] = useState('all')
 
   const [classForm, setClassForm] = useState<{ id: string | null; name: string; fee_amount: string; category: string } | null>(
     null
@@ -69,8 +68,16 @@ export function ClassesSubjectsPage() {
   const assignableTeachers = useMemo(() => teachers.filter((t) => t.status !== 'left'), [teachers])
   const pendingSubjects = subjects.filter((s) => s.status === 'pending_approval')
   const activeSubjects = subjects.filter((s) => s.status === 'active')
-  const filteredSubjects =
-    subjectClassFilter === 'all' ? activeSubjects : activeSubjects.filter((s) => s.class_id === subjectClassFilter)
+  const subjectsByClass = useMemo(() => {
+    const map = new Map<string, Subject[]>()
+    for (const s of activeSubjects) {
+      const list = map.get(s.class_id) ?? []
+      list.push(s)
+      map.set(s.class_id, list)
+    }
+    for (const list of map.values()) list.sort((a, b) => a.name.localeCompare(b.name))
+    return map
+  }, [activeSubjects])
 
   async function saveClass() {
     if (!classForm || !classForm.name.trim()) {
@@ -254,7 +261,7 @@ export function ClassesSubjectsPage() {
               setSubjectForm({
                 id: null,
                 name: '',
-                class_id: subjectClassFilter !== 'all' ? subjectClassFilter : classes[0]?.id ?? '',
+                class_id: classes[0]?.id ?? '',
                 teacher_id: '',
               })
             }
@@ -263,63 +270,72 @@ export function ClassesSubjectsPage() {
             + Add Subject
           </Button>
         </div>
-        {classes.length > 0 && (
-          <Field label="Filter by class">
-            <Select value={subjectClassFilter} onChange={(e) => setSubjectClassFilter(e.target.value)} className="sm:max-w-xs">
-              <option value="all">All classes</option>
-              {classes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
         <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-          <table className="w-full min-w-[480px] text-left text-sm">
+          <table className="w-full min-w-[480px] border-collapse text-left text-sm">
             <thead className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs uppercase text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-3">Subject</th>
-                <th className="px-4 py-3">Class</th>
                 <th className="px-4 py-3">Teacher</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
-              {filteredSubjects.length === 0 ? (
+              {classes.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
-                    {subjectClassFilter === 'all' ? 'No subjects yet.' : 'No subjects for this class yet.'}
+                  <td colSpan={3} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
+                    No classes yet.
                   </td>
                 </tr>
               ) : (
-                filteredSubjects.map((s) => (
-                  <tr key={s.id} className="border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{s.name}</td>
-                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{classById.get(s.class_id)?.name ?? '—'}</td>
-                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                      {s.teacher_id ? teacherById.get(s.teacher_id)?.full_name ?? 'Unknown' : 'Unassigned'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() =>
-                          setSubjectForm({
-                            id: s.id,
-                            name: s.name,
-                            class_id: s.class_id,
-                            teacher_id: s.teacher_id ?? '',
-                          })
-                        }
-                        className="mr-3 text-sm text-brand-600 hover:underline"
-                      >
-                        Edit
-                      </button>
-                      <button onClick={() => setDeleteSubject(s)} className="text-sm text-red-600 dark:text-red-400 hover:underline">
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                classes.map((c) => {
+                  const classSubjects = subjectsByClass.get(c.id) ?? []
+                  return (
+                    <Fragment key={c.id}>
+                      <tr className="border-t border-slate-200 bg-brand-50/70 dark:border-slate-700 dark:bg-brand-900/20">
+                        <td colSpan={3} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+                          {c.name}
+                        </td>
+                      </tr>
+                      {classSubjects.length === 0 ? (
+                        <tr className="border-b border-slate-100 dark:border-slate-700/60">
+                          <td colSpan={3} className="px-4 py-3 italic text-slate-400 dark:text-slate-500">
+                            No subjects yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        classSubjects.map((s) => (
+                          <tr
+                            key={s.id}
+                            className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/40"
+                          >
+                            <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{s.name}</td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                              {s.teacher_id ? teacherById.get(s.teacher_id)?.full_name ?? 'Unknown' : 'Unassigned'}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() =>
+                                  setSubjectForm({
+                                    id: s.id,
+                                    name: s.name,
+                                    class_id: s.class_id,
+                                    teacher_id: s.teacher_id ?? '',
+                                  })
+                                }
+                                className="mr-3 text-sm text-brand-600 hover:underline"
+                              >
+                                Edit
+                              </button>
+                              <button onClick={() => setDeleteSubject(s)} className="text-sm text-red-600 dark:text-red-400 hover:underline">
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </Fragment>
+                  )
+                })
               )}
             </tbody>
           </table>
