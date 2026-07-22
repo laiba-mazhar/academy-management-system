@@ -63,7 +63,10 @@ export function TimetableGrid({ slots, emptyMessage }: TimetableGridProps) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={rowKey(row.start, row.end)} className="border-t border-slate-100 dark:border-slate-700/60">
+            <tr
+              key={rowKey(row.start, row.end)}
+              className="border-t border-slate-100 transition-colors hover:bg-brand-50/40 dark:border-slate-700/60 dark:hover:bg-brand-900/10"
+            >
               <td className="sticky left-0 z-10 whitespace-nowrap border-r border-slate-200 bg-white px-4 py-2 font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                 {row.start.slice(0, 5)}–{row.end.slice(0, 5)}
               </td>
@@ -74,7 +77,7 @@ export function TimetableGrid({ slots, emptyMessage }: TimetableGridProps) {
                     {cellSlots.map((s) => (
                       <div
                         key={s.id}
-                        className="group relative rounded-lg bg-brand-50 px-3 py-2 dark:bg-brand-900/30"
+                        className="group relative rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md dark:border-brand-800/60 dark:bg-brand-900/30 dark:hover:border-brand-600"
                       >
                         <p className="pr-4 text-sm font-medium text-slate-800 dark:text-slate-100">{s.primary}</p>
                         {s.secondary && (
@@ -84,7 +87,7 @@ export function TimetableGrid({ slots, emptyMessage }: TimetableGridProps) {
                           <button
                             onClick={s.onRemove}
                             title="Remove"
-                            className="no-print absolute right-1.5 top-1.5 hidden text-xs text-red-600 hover:underline group-hover:block dark:text-red-400"
+                            className="no-print absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border border-brand-300 text-[10px] leading-none text-brand-600 opacity-0 transition-all duration-150 hover:bg-brand-600 hover:text-white group-hover:opacity-100 dark:border-brand-500 dark:text-brand-300 dark:hover:bg-brand-500 dark:hover:text-white"
                           >
                             ✕
                           </button>
