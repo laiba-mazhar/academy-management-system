@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import { Select } from '@/components/ui/Input'
 import { STATUS } from '@/lib/chartColors'
-import { currentMonthValue, formatCurrency, formatMonth, monthValueToDate, todayLocalDate } from '@/lib/utils'
+import { currentMonthValue, formatCurrency, formatDate, formatMonth, monthValueToDate, todayLocalDate } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import type { Profile, Salary, Teacher } from '@/types/database'
 
@@ -16,6 +18,7 @@ export function SalariesPage() {
   const [loading, setLoading] = useState(true)
   const [generatingSalaries, setGeneratingSalaries] = useState(false)
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({})
+  const [historyFor, setHistoryFor] = useState<TeacherRow | null>(null)
 
   const currentMonth = monthValueToDate(currentMonthValue())
 
@@ -239,10 +242,13 @@ export function SalariesPage() {
                       <td className="whitespace-nowrap px-2 py-2 text-amber-700 dark:text-amber-400">{formatCurrency(lifetime.pending)}</td>
                       <td className="whitespace-nowrap px-2 py-2 text-right">
                         {salary && salary.status !== 'paid' && (
-                          <button onClick={() => markSalaryPaid(salary)} className="text-sm text-brand-600 hover:underline dark:text-gold-400">
+                          <button onClick={() => markSalaryPaid(salary)} className="mr-3 text-sm text-brand-600 hover:underline dark:text-gold-400">
                             Mark Paid
                           </button>
                         )}
+                        <button onClick={() => setHistoryFor(t)} className="text-sm text-slate-600 hover:underline dark:text-slate-300">
+                          View History
+                        </button>
                       </td>
                     </tr>
                   )
@@ -252,6 +258,101 @@ export function SalariesPage() {
           </div>
         )}
       </div>
+
+      {historyFor && (
+        <SalaryHistoryModal
+          teacher={historyFor}
+          salaries={salaries.filter((s) => s.teacher_id === historyFor.id).sort((a, b) => b.month.localeCompare(a.month))}
+          onClose={() => setHistoryFor(null)}
+          onMarkPaid={(salary) => {
+            markSalaryPaid(salary)
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+function SalaryHistoryModal({
+  teacher,
+  salaries,
+  onClose,
+  onMarkPaid,
+}: {
+  teacher: TeacherRow
+  salaries: Salary[]
+  onClose: () => void
+  onMarkPaid: (salary: Salary) => void
+}) {
+  const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'pending'>('all')
+  const filtered = statusFilter === 'all' ? salaries : salaries.filter((s) => s.status === statusFilter)
+
+  const totalPaid = salaries.filter((s) => s.status === 'paid').reduce((sum, s) => sum + s.amount, 0)
+  const totalPending = salaries.filter((s) => s.status === 'pending').reduce((sum, s) => sum + s.amount, 0)
+
+  return (
+    <Modal title={`Salary History — ${teacher.full_name}`} onClose={onClose} wide>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex gap-4 text-sm text-slate-500 dark:text-slate-400">
+          <span>
+            Total paid: <strong className="text-green-700 dark:text-green-400">{formatCurrency(totalPaid)}</strong>
+          </span>
+          <span>
+            Total pending: <strong className="text-amber-700 dark:text-amber-400">{formatCurrency(totalPending)}</strong>
+          </span>
+        </div>
+        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | 'paid' | 'pending')} className="sm:max-w-[160px]">
+          <option value="all">All statuses</option>
+          <option value="paid">Paid</option>
+          <option value="pending">Pending</option>
+        </Select>
+      </div>
+      {filtered.length === 0 ? (
+        <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">
+          {salaries.length === 0 ? 'No salary records for this teacher yet.' : 'No records match this filter.'}
+        </p>
+      ) : (
+        <div className="max-h-96 overflow-y-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="sticky top-0 border-b border-slate-200 bg-white text-xs uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+              <tr>
+                <th className="px-2 py-2">Month</th>
+                <th className="px-2 py-2">Amount</th>
+                <th className="px-2 py-2">Status</th>
+                <th className="px-2 py-2">Paid Date</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((s) => (
+                <tr key={s.id} className="border-b border-slate-100 last:border-0 dark:border-slate-700/60">
+                  <td className="px-2 py-2 font-medium text-slate-800 dark:text-slate-100">{formatMonth(s.month)}</td>
+                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{formatCurrency(s.amount)}</td>
+                  <td className="px-2 py-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        s.status === 'paid'
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                          : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+                      }`}
+                    >
+                      {s.status}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{formatDate(s.paid_date)}</td>
+                  <td className="px-2 py-2 text-right">
+                    {s.status !== 'paid' && (
+                      <button onClick={() => onMarkPaid(s)} className="text-sm text-brand-600 hover:underline dark:text-gold-400">
+                        Mark Paid
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   )
 }

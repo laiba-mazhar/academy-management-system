@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Input'
 import { DocumentLetterhead } from '@/components/DocumentLetterhead'
+import { printElement } from '@/lib/printElement'
 import { currentMonthValue, effectiveFee, formatCurrency, formatDate, formatMonth, monthValueToDate, netInvoiceAmount, shiftMonthValue, todayLocalDate } from '@/lib/utils'
 import { friendlyError, edgeFunctionError } from '@/lib/errors'
 import type { Class, Invoice, Student } from '@/types/database'
@@ -25,6 +26,7 @@ export function FeesPage() {
   const [receiptFor, setReceiptFor] = useState<Invoice | null>(null)
   const [historyFor, setHistoryFor] = useState<Student | null>(null)
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null)
+  const receiptPrintRef = useRef<HTMLDivElement>(null)
 
   const month = monthValueToDate(monthValue)
   const currentMonth = monthValueToDate(currentMonthValue())
@@ -465,7 +467,7 @@ export function FeesPage() {
 
       {receiptFor && (
         <Modal title="Fee Receipt" onClose={() => setReceiptFor(null)}>
-          <div className="print-area space-y-4">
+          <div ref={receiptPrintRef} className="print-area space-y-4">
             <DocumentLetterhead subtitle="Fee Receipt" />
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
@@ -520,7 +522,7 @@ export function FeesPage() {
             <Button variant="secondary" onClick={() => setReceiptFor(null)}>
               Close
             </Button>
-            <Button onClick={() => window.print()}>Print</Button>
+            <Button onClick={() => printElement(receiptPrintRef.current)}>Print</Button>
           </div>
         </Modal>
       )}

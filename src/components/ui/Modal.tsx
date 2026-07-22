@@ -12,11 +12,11 @@ export function Modal({
   wide?: boolean
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+    <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
       <div
-        className={`w-full ${wide ? 'max-w-2xl' : 'max-w-md'} rounded-xl border border-gold-400/30 bg-white p-6 shadow-lg dark:border-gold-500/20 dark:bg-slate-800`}
+        className={`flex max-h-[90vh] w-full ${wide ? 'max-w-2xl' : 'max-w-md'} flex-col rounded-xl border border-gold-400/30 bg-white shadow-lg dark:border-gold-500/20 dark:bg-slate-800`}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-700/60">
           <h2 className="text-base font-semibold text-brand-800 dark:text-cream-50">{title}</h2>
           <button
             onClick={onClose}
@@ -26,7 +26,7 @@ export function Modal({
             ✕
           </button>
         </div>
-        {children}
+        <div className="overflow-y-auto px-6 py-4">{children}</div>
       </div>
     </div>
   )

@@ -5,6 +5,7 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/EmptyState'
 import { TimetableGrid } from '@/components/TimetableGrid'
+import { DocumentLetterhead } from '@/components/DocumentLetterhead'
 import type { Class, Subject, Timetable } from '@/types/database'
 
 export function TeacherTimetablePage() {
@@ -49,6 +50,9 @@ export function TeacherTimetablePage() {
       </div>
 
       <div className="print-area space-y-4">
+        <div className="hidden print:block">
+          <DocumentLetterhead subtitle={`My Timetable — ${profile?.full_name ?? ''}`} />
+        </div>
         {loading ? (
           <p className="text-slate-400 dark:text-slate-500">Loading...</p>
         ) : slots.length === 0 ? (

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Field, Select } from '@/components/ui/Input'
 import { DocumentLetterhead } from '@/components/DocumentLetterhead'
+import { printElement } from '@/lib/printElement'
 import { currentMonthValue, effectiveFee, formatCurrency, formatDate, formatMonth, monthValueToDate, netInvoiceAmount, shiftMonthValue, todayLocalDate } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import type { Class, Invoice, Student } from '@/types/database'
@@ -27,6 +28,7 @@ export function FeeChallanPage() {
   const [challanLoading, setChallanLoading] = useState(false)
   const [challanError, setChallanError] = useState<string | null>(null)
   const [dueDateDraft, setDueDateDraft] = useState('')
+  const printAreaRef = useRef<HTMLDivElement>(null)
 
   async function load() {
     setLoading(true)
@@ -268,7 +270,7 @@ export function FeeChallanPage() {
     if (challanInvoice && dueDateDraft !== (challanInvoice.due_date ?? '')) {
       await saveDueDate()
     }
-    window.print()
+    printElement(printAreaRef.current)
   }
 
   async function markChallanPaid() {
@@ -539,7 +541,7 @@ export function FeeChallanPage() {
             <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">Loading challan...</p>
           ) : (
             <>
-              <div className="print-area space-y-4">
+              <div ref={printAreaRef} className="print-area space-y-4">
                 <DocumentLetterhead subtitle="Fee Challan" />
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between">

@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Field, Select, Input } from '@/components/ui/Input'
 import { DAY_NAMES } from '@/lib/utils'
 import { TimetableGrid } from '@/components/TimetableGrid'
+import { DocumentLetterhead } from '@/components/DocumentLetterhead'
 import type { Class, Subject, Timetable, TeacherStatus } from '@/types/database'
 
 type TeacherOption = { id: string; full_name: string; status: TeacherStatus }
@@ -190,7 +191,9 @@ export function AdminTimetablePage() {
         </p>
       ) : (
         <div className="print-area space-y-4">
-          <h2 className="hidden text-lg font-semibold print:block">Class Timetable — {selectedClassName}</h2>
+          <div className="hidden print:block">
+            <DocumentLetterhead subtitle={`Class Timetable — ${selectedClassName}`} />
+          </div>
           {loading ? (
             <p className="text-slate-400 dark:text-slate-500">Loading...</p>
           ) : (

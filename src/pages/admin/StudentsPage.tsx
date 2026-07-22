@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select } from '@/components/ui/Input'
 import { StudentFullReport } from '@/components/StudentFullReport'
+import { printElement } from '@/lib/printElement'
 import { formatCurrency, isValidEmail, isValidPhone } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import type { Class, EnrollmentStatus, Student } from '@/types/database'
@@ -55,6 +56,7 @@ export function StudentsPage() {
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null)
   const [reportCardFor, setReportCardFor] = useState<Student | null>(null)
+  const reportCardPrintRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function load() {
@@ -486,12 +488,14 @@ export function StudentsPage() {
 
       {reportCardFor && (
         <Modal title={`Student Report — ${reportCardFor.full_name}`} onClose={() => setReportCardFor(null)} wide>
-          <StudentFullReport student={reportCardFor} className="print-area" />
+          <div ref={reportCardPrintRef} className="print-area">
+            <StudentFullReport student={reportCardFor} />
+          </div>
           <div className="no-print mt-6 flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setReportCardFor(null)}>
               Close
             </Button>
-            <Button onClick={() => window.print()}>Print</Button>
+            <Button onClick={() => printElement(reportCardPrintRef.current)}>Print</Button>
           </div>
         </Modal>
       )}

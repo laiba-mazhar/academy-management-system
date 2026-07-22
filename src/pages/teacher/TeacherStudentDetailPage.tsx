@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { ReportCard } from '@/components/ReportCard'
 import { formatDate } from '@/lib/utils'
+import { printElement } from '@/lib/printElement'
 import type { Attendance, Student } from '@/types/database'
 
 export function TeacherStudentDetailPage() {
@@ -13,6 +14,7 @@ export function TeacherStudentDetailPage() {
   const [student, setStudent] = useState<Student | null>(null)
   const [attendance, setAttendance] = useState<Attendance[]>([])
   const [loading, setLoading] = useState(true)
+  const reportCardPrintRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     async function load() {
@@ -69,11 +71,13 @@ export function TeacherStudentDetailPage() {
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Report Card</h2>
-          <Button variant="secondary" onClick={() => window.print()}>
+          <Button variant="secondary" onClick={() => printElement(reportCardPrintRef.current)}>
             Print
           </Button>
         </div>
-        <ReportCard student={student} className="print-area" subjectScoped />
+        <div ref={reportCardPrintRef} className="print-area">
+          <ReportCard student={student} subjectScoped />
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">

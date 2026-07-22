@@ -78,6 +78,18 @@
     width: 100%;
   }
 
+  /* A print-area inside a Modal has that modal's own `position: fixed; inset:
+     0` overlay as an ancestor. Nesting one fixed-position box inside another
+     is exactly the case Chromium's print engine mispaginates — it can emit
+     extra blank/duplicate pages even though the same markup lays out fine
+     on screen (there the overlay happens to exactly cover the viewport,
+     which hides the bug). Neutralizing the overlay's positioning during
+     print removes that nested-fixed ancestor so `.print-area` resolves
+     against the real page box with nothing in between. */
+  .modal-overlay {
+    position: static !important;
+  }
+
   .print-area table {
     border-collapse: collapse;
   }
@@ -90,6 +102,23 @@
   .print-area .shadow,
   .print-area [class*='shadow-'] {
     box-shadow: none !important;
+  }
+
+  /* Browsers skip background colors/images on print by default unless the
+     user opts in via a "background graphics" checkbox — force it so things
+     like the timetable's colored slot cards print the way they look on
+     screen instead of coming out as plain white boxes. */
+  .print-area,
+  .print-area * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* `sticky`/`fixed` positioning (e.g. the timetable's sticky time column)
+     is meaningless once content is paginated and can misplace or clip
+     content across page breaks — render everything in normal flow instead. */
+  .print-area .sticky {
+    position: static !important;
   }
 
   .no-print {
