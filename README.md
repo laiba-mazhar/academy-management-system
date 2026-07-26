@@ -28,14 +28,21 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    supabase secrets set RESEND_API_KEY=your-resend-api-key
    ```
    **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Maktab - The Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
-7. For **WhatsApp exam-result messages** to guardians (via [SendPK](https://wa.sendpk.com)), create an account there, then:
-   1. Create + submit a WhatsApp message template for approval with **six variables in this exact order**: `{{1}}` guardian name, `{{2}}` student name, `{{3}}` marks obtained, `{{4}}` total marks, `{{5}}` subject, `{{6}}` exam name — e.g. *"Dear {{1}}, your child {{2}} scored {{3}} out of {{4}} marks in {{5}} ({{6}}). ..."*. Choose the **Utility** category (a result notice is transactional, not marketing — cheaper and more likely to be approved).
-   2. Once approved, note its **template ID** and set both secrets (the API key must never live in the repo or the browser):
+7. For **WhatsApp exam-result messages** to guardians, via Meta's [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api):
+   1. At [developers.facebook.com](https://developers.facebook.com) create an app of type **Business** and add the **WhatsApp** product. This gives you a free **test sender number** plus a **Phone number ID** — no SIM required, and no Business verification for testing.
+   2. Under *API Setup*, add the recipient numbers you want to test with (**the test number only delivers to numbers on that list — up to 5**).
+   3. In **WhatsApp Manager → Message templates**, create a template named `result_notification`, category **Utility** (a result notice is transactional, not marketing — cheaper and far more likely to be approved), language **English**, with **six body variables in this exact order**: `{{1}}` guardian name, `{{2}}` student name, `{{3}}` marks obtained, `{{4}}` total marks, `{{5}}` subject, `{{6}}` exam name. For example:
+      > Dear {{1}}, your child {{2}} scored {{3}} out of {{4}} marks in {{5}} ({{6}}). For any questions, please contact the school office. Thank you, Maktab - The Educational Institute.
+   4. Set the secrets (the token must never live in the repo or the browser):
       ```
-      supabase secrets set SENDPK_API_KEY=your-sendpk-api-key
-      supabase secrets set SENDPK_TEMPLATE_ID=your-approved-template-id
+      supabase secrets set WHATSAPP_ACCESS_TOKEN=your-access-token
+      supabase secrets set WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
       ```
-   Guardian phone numbers are normalized to Pakistan's `92XXXXXXXXXX` format automatically, so `0300-1234567`, `+92 300 1234567`, etc. all work. If your approved template uses different variable placeholder keys, adjust `template_data` in `supabase/functions/send-result-whatsapp/index.ts`. If you edit the template's wording later, keep the six variables in the same order or the messages will come out scrambled.
+      Optional overrides: `WHATSAPP_TEMPLATE_NAME` (default `result_notification`), `WHATSAPP_TEMPLATE_LANG` (default `en`), `WHATSAPP_API_VERSION` (default `v23.0`).
+
+   **Token expiry**: the quick-start token shown in the dashboard **expires after 24 hours** — fine for testing, but for production generate a permanent token via a System User in Meta Business Settings and re-set the secret. A `401`/code `190` from Meta means the token expired, not that the function is broken.
+
+   Guardian phone numbers are normalized to Pakistan's `92XXXXXXXXXX` format automatically, so `0300-1234567`, `+92 300 1234567`, etc. all work. If you edit the template's wording later, keep the six variables in the same order or the messages will come out scrambled.
 
 ## Running the app
 
