@@ -30,7 +30,15 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Maktab - The Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
 7. For **exam-result messages** to guardians. `MESSAGE_PROVIDER` also accepts a **comma-separated chain** for automatic failover — each message tries the providers left to right and stops at the first that accepts it. The recommended production setting is `MESSAGE_PROVIDER=httpsms,sms`: the phone-based route handles the traffic at a fraction of a paisa per message, and the paid gateway silently covers the gaps when that phone is offline, so an unplugged handset costs a few rupees rather than losing notifications. A provider whose secrets are missing is skipped, not treated as a failure; if a message exhausts the whole chain, the error reports what each route said.
 
-   Four providers are supported, selected with the `MESSAGE_PROVIDER` secret — **httpSMS** (cheapest, sends via a carrier SMS bundle on your own Android phone), **SMS** via SendPK, **Twilio** for testing (no Meta account, no template approval), and **Meta** for production WhatsApp.
+   **WhatsApp via SendPK** (`MESSAGE_PROVIDER=sendpk-wa`) is the route to use when the number is registered under SendPK rather than your own Cloud API app. Meta only lets one provider hold a number at a time, so the direct `meta` route will refuse a number SendPK already manages — check WhatsApp Manager → Phone numbers to see which applies. Approve a template inside SendPK's own panel (seven variables, same order as below), then:
+   ```
+   supabase secrets set MESSAGE_PROVIDER=sendpk-wa
+   supabase secrets set SENDPK_WA_API_KEY=your-api-key
+   supabase secrets set SENDPK_WA_TEMPLATE_ID=your-approved-template-id
+   ```
+   The template id is SendPK's, not Meta's template name. To move the number to your own app later, SendPK must release it first, and you'll need its two-step verification PIN.
+
+   Five providers are supported, selected with the `MESSAGE_PROVIDER` secret — **httpSMS** (cheapest, sends via a carrier SMS bundle on your own Android phone), **SMS** via SendPK, **Twilio** for testing (no Meta account, no template approval), and **Meta** for production WhatsApp.
 
    **httpSMS via a carrier bundle** (`MESSAGE_PROVIDER=httpsms`) is by far the cheapest route. A Jazz or Telenor monthly SMS bundle (roughly Rs 40–99 for 10,000–12,000 SMS) works out near **PKR 0.004–0.008 per message**, against ~PKR 1+ from a commercial gateway — so a whole month of alerts costs less than a hundred rupees. Setup:
    1. Put a SIM with a monthly SMS bundle in a spare Android phone; keep it charged and on WiFi.

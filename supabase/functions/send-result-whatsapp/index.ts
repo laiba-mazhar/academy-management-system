@@ -4,7 +4,7 @@
 //
 // Deploy: supabase functions deploy send-result-whatsapp
 //
-// Four providers are supported; pick one with the MESSAGE_PROVIDER secret, or
+// Five providers are supported; pick one with the MESSAGE_PROVIDER secret, or
 // list several comma-separated to get automatic failover. The recommended
 // production setting pairs the cheap phone-based route with a paid gateway:
 //
@@ -38,6 +38,15 @@
 //       supabase secrets set SENDPK_SMS_SENDER=Maktab
 //     A branded sender ID needs PTA/NTN registration; without one the gateway
 //     falls back to its own numeric sender.
+//
+//   MESSAGE_PROVIDER=sendpk-wa — WhatsApp where SendPK is the provider holding
+//     the number. Meta only lets one provider hold a number at a time, so if the
+//     number is registered under SendPK the direct "meta" route will refuse it
+//     and this is the way in. The template must be approved in SendPK's own
+//     panel; the id below is theirs, not Meta's template name.
+//       supabase secrets set MESSAGE_PROVIDER=sendpk-wa
+//       supabase secrets set SENDPK_WA_API_KEY=your-api-key
+//       supabase secrets set SENDPK_WA_TEMPLATE_ID=your-approved-template-id
 //
 //   MESSAGE_PROVIDER=twilio   — testing. Twilio's WhatsApp sandbox needs no
 //     Meta business account and no approved template (it sends free-form text
@@ -85,6 +94,9 @@ const TWILIO_WHATSAPP_FROM = Deno.env.get('TWILIO_WHATSAPP_FROM') ?? 'whatsapp:+
 const HTTPSMS_API_KEY = Deno.env.get('HTTPSMS_API_KEY')
 const HTTPSMS_FROM = Deno.env.get('HTTPSMS_FROM')
 const HTTPSMS_ENDPOINT = Deno.env.get('HTTPSMS_ENDPOINT') ?? 'https://api.httpsms.com/v1/messages/send'
+
+const SENDPK_WA_API_KEY = Deno.env.get('SENDPK_WA_API_KEY')
+const SENDPK_WA_TEMPLATE_ID = Deno.env.get('SENDPK_WA_TEMPLATE_ID')
 
 const SENDPK_SMS_USERNAME = Deno.env.get('SENDPK_SMS_USERNAME')
 const SENDPK_SMS_PASSWORD = Deno.env.get('SENDPK_SMS_PASSWORD')
@@ -156,6 +168,34 @@ async function sendViaHttpSms(mobile: string, variables: string[]): Promise<Send
   const text = await res.text()
   if (!res.ok) {
     return { ok: false, error: text.slice(0, 300) || `httpSMS returned status ${res.status}` }
+  }
+  return { ok: true }
+}
+
+// WhatsApp through SendPK acting as the BSP for the number. Use this when the
+// number is registered under SendPK rather than your own Cloud API app — Meta
+// only lets one provider hold a number at a time, so the direct "meta" route
+// will refuse a number they already manage. Needs a template approved inside
+// SendPK's own panel; its id is theirs, not Meta's template name.
+async function sendViaSendpkWhatsApp(mobile: string, variables: string[]): Promise<SendResult> {
+  const [guardian, student, marks, total, subject, examName, passLabel] = variables
+  const templateData = [
+    { mobile, '1': guardian, '2': student, '3': marks, '4': total, '5': subject, '6': examName, '7': passLabel },
+  ]
+  const form = new URLSearchParams({
+    api_key: SENDPK_WA_API_KEY!,
+    template_id: SENDPK_WA_TEMPLATE_ID!,
+    template_data: JSON.stringify(templateData),
+  })
+  const res = await fetch('https://wa.sendpk.com/api/send.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
+  })
+  const text = (await res.text()).trim()
+  // They answer 200 even for rejections, so the body has to be inspected.
+  if (!res.ok || /error|invalid|fail|insufficient|denied/i.test(text)) {
+    return { ok: false, error: text.slice(0, 300) || `SendPK returned status ${res.status}` }
   }
   return { ok: true }
 }
@@ -244,7 +284,7 @@ async function sendViaMeta(mobile: string, variables: string[]): Promise<SendRes
 
 // Returns an error string when the selected provider isn't fully configured,
 // so a misconfiguration fails loudly up front instead of once per student.
-const KNOWN_PROVIDERS = ['httpsms', 'sms', 'twilio', 'meta'] as const
+const KNOWN_PROVIDERS = ['httpsms', 'sms', 'sendpk-wa', 'twilio', 'meta'] as const
 
 // Why a given provider can't be used right now, or null if it's ready.
 function providerUnavailableReason(provider: string): string | null {
@@ -256,6 +296,10 @@ function providerUnavailableReason(provider: string): string | null {
     case 'sms':
       return !SENDPK_SMS_USERNAME || !SENDPK_SMS_PASSWORD
         ? 'sms: set SENDPK_SMS_USERNAME and SENDPK_SMS_PASSWORD'
+        : null
+    case 'sendpk-wa':
+      return !SENDPK_WA_API_KEY || !SENDPK_WA_TEMPLATE_ID
+        ? 'sendpk-wa: set SENDPK_WA_API_KEY and SENDPK_WA_TEMPLATE_ID'
         : null
     case 'twilio':
       return !TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN
@@ -276,6 +320,8 @@ function sendWith(provider: string, mobile: string, variables: string[]): Promis
       return sendViaHttpSms(mobile, variables)
     case 'sms':
       return sendViaSendpkSms(mobile, variables)
+    case 'sendpk-wa':
+      return sendViaSendpkWhatsApp(mobile, variables)
     case 'twilio':
       return sendViaTwilio(mobile, variables)
     default:
