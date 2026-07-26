@@ -28,7 +28,22 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    supabase secrets set RESEND_API_KEY=your-resend-api-key
    ```
    **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Maktab - The Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
-7. For **WhatsApp exam-result messages** to guardians, via Meta's [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api):
+7. For **WhatsApp exam-result messages** to guardians. Two providers are supported, selected with the `MESSAGE_PROVIDER` secret — **Twilio** for testing (no Meta account, no template approval) and **Meta** for production.
+
+   **Testing via Twilio's WhatsApp sandbox** — fastest way to see real messages, and it works without a Meta business account:
+   1. Sign up at [twilio.com](https://www.twilio.com) (trial credit included). If phone verification fails from Pakistan, use **"Send code via voice call"**.
+   2. **Messaging → Try it out → Send a WhatsApp message** shows the sandbox number and a join code. From each test phone, WhatsApp that join code to the sandbox number. Sessions expire after ~3 days; re-send the code to renew.
+   3. Set the secrets (Auth Token is a credential — never in the repo):
+      ```
+      supabase secrets set MESSAGE_PROVIDER=twilio
+      supabase secrets set TWILIO_ACCOUNT_SID=ACxxxxxxxx
+      supabase secrets set TWILIO_AUTH_TOKEN=your-auth-token
+      ```
+      Optional: `TWILIO_WHATSAPP_FROM` (defaults to the shared sandbox number `whatsapp:+14155238886`).
+
+   The sandbox sends free-form text, so no template is needed and the wording can change freely. It is for testing only — the sender is a shared US number, and international rates make it unsuitable for production volume in Pakistan.
+
+   **Production via Meta's [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api)** (set `MESSAGE_PROVIDER=meta`):
    1. At [developers.facebook.com](https://developers.facebook.com) create an app of type **Business** and add the **WhatsApp** product. This gives you a free **test sender number** plus a **Phone number ID** — no SIM required, and no Business verification for testing.
    2. Under *API Setup*, add the recipient numbers you want to test with (**the test number only delivers to numbers on that list — up to 5**).
    3. In **WhatsApp Manager → Message templates**, create a template named `result_notification`, category **Utility** (a result notice is transactional, not marketing — cheaper and far more likely to be approved), language **English**, with **seven body variables in this exact order**: `{{1}}` guardian name, `{{2}}` student name, `{{3}}` marks obtained, `{{4}}` total marks, `{{5}}` subject, `{{6}}` exam name, `{{7}}` Pass/Fail. Body used by this app:
