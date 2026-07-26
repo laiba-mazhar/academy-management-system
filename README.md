@@ -28,7 +28,16 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    supabase secrets set RESEND_API_KEY=your-resend-api-key
    ```
    **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Maktab - The Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
-7. For **WhatsApp exam-result messages** to guardians. Two providers are supported, selected with the `MESSAGE_PROVIDER` secret — **Twilio** for testing (no Meta account, no template approval) and **Meta** for production.
+7. For **exam-result messages** to guardians. Three providers are supported, selected with the `MESSAGE_PROVIDER` secret — **Twilio** for testing (no Meta account, no template approval), **Meta** for production WhatsApp, and **SMS** via SendPK.
+
+   **SMS via SendPK** (`MESSAGE_PROVIDER=sms`) is the only option here that doesn't depend on a Meta WhatsApp Business Account, so it keeps working even when a Meta business portfolio is restricted — and it costs roughly a third of WhatsApp per message in Pakistan.
+   ```
+   supabase secrets set MESSAGE_PROVIDER=sms
+   supabase secrets set SENDPK_SMS_USERNAME=your-username
+   supabase secrets set SENDPK_SMS_PASSWORD=your-password
+   supabase secrets set SENDPK_SMS_SENDER=Maktab
+   ```
+   The SMS copy is deliberately shorter than the WhatsApp wording so each message stays inside one 160-character billable part — edit `composeSms` in the edge function to change it, and keep an eye on the length. Urdu text is Unicode and only fits 70 characters per part. A branded sender ID (e.g. `Maktab` instead of a number) requires PTA registration with the institute's NTN and CNIC, and carries an annual fee.
 
    **Testing via Twilio's WhatsApp sandbox** — fastest way to see real messages, and it works without a Meta business account:
    1. Sign up at [twilio.com](https://www.twilio.com) (trial credit included). If phone verification fails from Pakistan, use **"Send code via voice call"**.

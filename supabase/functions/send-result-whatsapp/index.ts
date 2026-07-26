@@ -4,7 +4,18 @@
 //
 // Deploy: supabase functions deploy send-result-whatsapp
 //
-// Two providers are supported; pick one with the MESSAGE_PROVIDER secret.
+// Three providers are supported; pick one with the MESSAGE_PROVIDER secret.
+//
+//   MESSAGE_PROVIDER=sms      — SendPK SMS. The only channel here that does
+//     not depend on a Meta WhatsApp Business Account, so it keeps working when
+//     a Meta business portfolio is restricted. Cheapest per message, but the
+//     copy is trimmed to fit one 160-character SMS (see composeSms).
+//       supabase secrets set MESSAGE_PROVIDER=sms
+//       supabase secrets set SENDPK_SMS_USERNAME=your-username
+//       supabase secrets set SENDPK_SMS_PASSWORD=your-password
+//       supabase secrets set SENDPK_SMS_SENDER=Maktab
+//     A branded sender ID needs PTA/NTN registration; without one the gateway
+//     falls back to its own numeric sender.
 //
 //   MESSAGE_PROVIDER=twilio   — testing. Twilio's WhatsApp sandbox needs no
 //     Meta business account and no approved template (it sends free-form text
@@ -40,6 +51,10 @@ const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID')
 const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN')
 const TWILIO_WHATSAPP_FROM = Deno.env.get('TWILIO_WHATSAPP_FROM') ?? 'whatsapp:+14155238886'
 
+const SENDPK_SMS_USERNAME = Deno.env.get('SENDPK_SMS_USERNAME')
+const SENDPK_SMS_PASSWORD = Deno.env.get('SENDPK_SMS_PASSWORD')
+const SENDPK_SMS_SENDER = Deno.env.get('SENDPK_SMS_SENDER') ?? 'Maktab'
+
 const WHATSAPP_ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN')
 const WHATSAPP_PHONE_NUMBER_ID = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID')
 const TEMPLATE_NAME = Deno.env.get('WHATSAPP_TEMPLATE_NAME') ?? 'result_notification'
@@ -73,6 +88,39 @@ function composeMessage(v: string[]): string {
     `${subject} (${examName}). Result: ${passLabel}. For any questions, please contact ` +
     `the school office. Thank you, Maktab - The Educational Institute.`
   )
+}
+
+// SMS bills per 160 characters, so this deliberately drops the salutation and
+// sign-off that the WhatsApp copy carries — it keeps the whole message inside
+// a single billable part (~80 chars) instead of spilling into a second one.
+function composeSms(v: string[]): string {
+  const [, student, marks, total, subject, examName, passLabel] = v
+  return `Maktab: ${student} scored ${marks}/${total} in ${subject} (${examName}). Result: ${passLabel}.`
+}
+
+async function sendViaSendpkSms(mobile: string, variables: string[]): Promise<SendResult> {
+  // Credentials go in the POST body rather than the query string the docs show,
+  // so the account password stays out of proxy/access logs. Their endpoint is
+  // PHP and reads either; switch to a GET URL if a future change breaks this.
+  const form = new URLSearchParams({
+    username: SENDPK_SMS_USERNAME!,
+    password: SENDPK_SMS_PASSWORD!,
+    sender: SENDPK_SMS_SENDER,
+    mobile,
+    message: composeSms(variables),
+  })
+  const res = await fetch('https://sendpk.com/api/sms.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
+  })
+  const text = (await res.text()).trim()
+  // The gateway answers with a plain-text status rather than JSON, and returns
+  // 200 even for rejections, so the body has to be inspected for a failure word.
+  if (!res.ok || /error|invalid|fail|insufficient|denied/i.test(text)) {
+    return { ok: false, error: text.slice(0, 300) || `SMS gateway returned status ${res.status}` }
+  }
+  return { ok: true }
 }
 
 async function sendViaTwilio(mobile: string, variables: string[]): Promise<SendResult> {
@@ -147,7 +195,13 @@ function providerConfigError(): string | null {
     }
     return null
   }
-  return `Unknown MESSAGE_PROVIDER "${PROVIDER}" — expected "twilio" or "meta".`
+  if (PROVIDER === 'sms') {
+    if (!SENDPK_SMS_USERNAME || !SENDPK_SMS_PASSWORD) {
+      return 'SMS is not configured. Run: supabase secrets set SENDPK_SMS_USERNAME=... SENDPK_SMS_PASSWORD=...'
+    }
+    return null
+  }
+  return `Unknown MESSAGE_PROVIDER "${PROVIDER}" — expected "twilio", "meta" or "sms".`
 }
 
 Deno.serve(async (req) => {
@@ -257,9 +311,12 @@ Deno.serve(async (req) => {
     ]
 
     try {
-      const sendResult = PROVIDER === 'twilio'
-        ? await sendViaTwilio(mobile, variables)
-        : await sendViaMeta(mobile, variables)
+      const sendResult =
+        PROVIDER === 'twilio'
+          ? await sendViaTwilio(mobile, variables)
+          : PROVIDER === 'sms'
+            ? await sendViaSendpkSms(mobile, variables)
+            : await sendViaMeta(mobile, variables)
       if (!sendResult.ok) {
         outcomes.push({ studentId: result.student_id, ok: false, error: sendResult.error })
         continue
