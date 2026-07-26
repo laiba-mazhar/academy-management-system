@@ -5,8 +5,8 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Textarea } from '@/components/ui/Input'
 import { DocumentLetterhead } from '@/components/DocumentLetterhead'
-import { formatDate, percentage } from '@/lib/utils'
-import { friendlyError } from '@/lib/errors'
+import { formatDate, formatDateTime, percentage } from '@/lib/utils'
+import { edgeFunctionError, friendlyError } from '@/lib/errors'
 import type { Class, Exam, ExamQuestion, ExamResult, Question, Student, Subject } from '@/types/database'
 
 export function ExamDetailPage({ basePath }: { basePath: string }) {
@@ -21,6 +21,8 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   const [students, setStudents] = useState<Student[]>([])
   const [results, setResults] = useState<Record<string, string>>({})
   const [savedResults, setSavedResults] = useState<Record<string, string>>({})
+  const [resultRows, setResultRows] = useState<Record<string, ExamResult>>({})
+  const [sendingWhatsappId, setSendingWhatsappId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingMarks, setSavingMarks] = useState(false)
   const [showAddQuestion, setShowAddQuestion] = useState(false)
@@ -59,9 +61,14 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     if (studentsRes.data) setStudents(studentsRes.data as Student[])
     if (resultsRes.data) {
       const map: Record<string, string> = {}
-      for (const r of resultsRes.data as ExamResult[]) map[r.student_id] = String(r.marks_obtained)
+      const rowsByStudent: Record<string, ExamResult> = {}
+      for (const r of resultsRes.data as ExamResult[]) {
+        map[r.student_id] = String(r.marks_obtained)
+        rowsByStudent[r.student_id] = r
+      }
       setResults(map)
       setSavedResults(map)
+      setResultRows(rowsByStudent)
     }
     setLoading(false)
   }
@@ -214,14 +221,48 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
       return
     }
     setSavingMarks(true)
-    const { error } = await supabase.from('exam_results').upsert(rows, { onConflict: 'exam_id,student_id' })
+    const { data: savedRows, error } = await supabase
+      .from('exam_results')
+      .upsert(rows, { onConflict: 'exam_id,student_id' })
+      .select()
     setSavingMarks(false)
     if (error) {
       show(friendlyError(error.message), 'error')
       return
     }
     setSavedResults(results)
+    if (savedRows) {
+      setResultRows((prev) => {
+        const next = { ...prev }
+        for (const r of savedRows as ExamResult[]) next[r.student_id] = r
+        return next
+      })
+    }
     show('Marks saved.')
+  }
+
+  async function sendWhatsapp(student: Student) {
+    const row = resultRows[student.id]
+    if (!row) return
+    setSendingWhatsappId(student.id)
+    const { data, error } = await supabase.functions.invoke('send-result-whatsapp', {
+      body: { examResultId: row.id },
+    })
+    setSendingWhatsappId(null)
+    if (error) {
+      show(await edgeFunctionError(error, 'Failed to send result.'), 'error')
+      return
+    }
+    const response = data as { error?: string; success?: boolean }
+    if (response?.error) {
+      show(response.error, 'error')
+      return
+    }
+    show(`Result sent to ${student.full_name}'s guardian.`)
+    setResultRows((prev) => ({
+      ...prev,
+      [student.id]: { ...prev[student.id], whatsapp_sent_at: new Date().toISOString() },
+    }))
   }
 
   const selectedQuestions = questions
@@ -405,12 +446,13 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                   <th className="px-4 py-3">Student</th>
                   <th className="px-4 py-3">Marks Obtained</th>
                   <th className="px-4 py-3">Percentage</th>
+                  <th className="px-4 py-3">WhatsApp</th>
                 </tr>
               </thead>
               <tbody>
                 {students.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
                       No enrolled students in this class.
                     </td>
                   </tr>
@@ -419,6 +461,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                     const val = results[s.id] ?? ''
                     const num = Number(val)
                     const pct = val !== '' && !Number.isNaN(num) ? percentage(num, exam.total_marks) : null
+                    const resultRow = resultRows[s.id]
                     return (
                       <tr key={s.id} className="border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
                         <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{s.full_name}</td>
@@ -434,6 +477,28 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                           />
                         </td>
                         <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{pct !== null ? `${pct}%` : '—'}</td>
+                        <td className="px-4 py-3">
+                          {!resultRow ? (
+                            <span className="text-xs text-slate-400 dark:text-slate-500">Save marks first</span>
+                          ) : !s.guardian_phone ? (
+                            <span className="text-xs text-slate-400 dark:text-slate-500">No guardian phone</span>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                onClick={() => sendWhatsapp(s)}
+                                disabled={sendingWhatsappId === s.id}
+                                className="text-sm text-brand-600 hover:underline dark:text-gold-400 disabled:opacity-50"
+                              >
+                                {sendingWhatsappId === s.id ? 'Sending...' : resultRow.whatsapp_sent_at ? 'Resend' : 'Send'}
+                              </button>
+                              {resultRow.whatsapp_sent_at && (
+                                <span className="text-xs text-green-700 dark:text-green-400">
+                                  Sent {formatDateTime(resultRow.whatsapp_sent_at)}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     )
                   })

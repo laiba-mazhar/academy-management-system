@@ -126,6 +126,7 @@ export interface ExamResult {
   student_id: string
   marks_obtained: number
   entered_by: string | null
+  whatsapp_sent_at: string | null
   created_at: string
 }
 
@@ -273,7 +274,7 @@ export interface Database {
       }
       exam_results: {
         Row: ExamResult
-        Insert: InsertOf<ExamResult, 'id' | 'entered_by' | 'created_at'>
+        Insert: InsertOf<ExamResult, 'id' | 'entered_by' | 'whatsapp_sent_at' | 'created_at'>
         Update: Partial<ExamResult>
         Relationships: []
       }
