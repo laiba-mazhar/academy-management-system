@@ -4,7 +4,15 @@
 //
 // Deploy: supabase functions deploy send-result-whatsapp
 //
-// Four providers are supported; pick one with the MESSAGE_PROVIDER secret.
+// Four providers are supported; pick one with the MESSAGE_PROVIDER secret, or
+// list several comma-separated to get automatic failover. The recommended
+// production setting pairs the cheap phone-based route with a paid gateway:
+//
+//   supabase secrets set MESSAGE_PROVIDER=httpsms,sms
+//
+// Each message tries httpsms first (fractions of a paisa) and only falls back
+// to the gateway (~PKR 1) when the phone is offline, so an unplugged handset
+// costs a little money instead of silently dropping notifications.
 //
 //   MESSAGE_PROVIDER=httpsms  — cheapest. Sends through an Android phone
 //     running the httpSMS app on an ordinary carrier SMS bundle (a Jazz/Telenor
@@ -59,7 +67,16 @@ import { corsHeaders, jsonResponse } from '../_shared/cors.ts'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-const PROVIDER = (Deno.env.get('MESSAGE_PROVIDER') ?? 'meta').toLowerCase()
+// MESSAGE_PROVIDER accepts a comma-separated chain, tried left to right, so a
+// cheap-but-fragile transport can be backed by a reliable paid one:
+//   MESSAGE_PROVIDER=httpsms,sms
+// A provider whose secrets are missing is skipped rather than treated as a
+// failure, so half-configured chains still send by the routes that do work.
+const PROVIDER_CHAIN = (Deno.env.get('MESSAGE_PROVIDER') ?? 'meta')
+  .toLowerCase()
+  .split(',')
+  .map((p) => p.trim())
+  .filter(Boolean)
 
 const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID')
 const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN')
@@ -227,32 +244,43 @@ async function sendViaMeta(mobile: string, variables: string[]): Promise<SendRes
 
 // Returns an error string when the selected provider isn't fully configured,
 // so a misconfiguration fails loudly up front instead of once per student.
-function providerConfigError(): string | null {
-  if (PROVIDER === 'twilio') {
-    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
-      return 'Twilio is not configured. Run: supabase secrets set TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=...'
-    }
-    return null
+const KNOWN_PROVIDERS = ['httpsms', 'sms', 'twilio', 'meta'] as const
+
+// Why a given provider can't be used right now, or null if it's ready.
+function providerUnavailableReason(provider: string): string | null {
+  switch (provider) {
+    case 'httpsms':
+      return !HTTPSMS_API_KEY || !HTTPSMS_FROM
+        ? 'httpsms: set HTTPSMS_API_KEY and HTTPSMS_FROM'
+        : null
+    case 'sms':
+      return !SENDPK_SMS_USERNAME || !SENDPK_SMS_PASSWORD
+        ? 'sms: set SENDPK_SMS_USERNAME and SENDPK_SMS_PASSWORD'
+        : null
+    case 'twilio':
+      return !TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN
+        ? 'twilio: set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN'
+        : null
+    case 'meta':
+      return !WHATSAPP_ACCESS_TOKEN || !WHATSAPP_PHONE_NUMBER_ID
+        ? 'meta: set WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID'
+        : null
+    default:
+      return `unknown provider "${provider}" — expected one of ${KNOWN_PROVIDERS.join(', ')}`
   }
-  if (PROVIDER === 'meta') {
-    if (!WHATSAPP_ACCESS_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
-      return 'WhatsApp is not configured. Run: supabase secrets set WHATSAPP_ACCESS_TOKEN=... WHATSAPP_PHONE_NUMBER_ID=...'
-    }
-    return null
+}
+
+function sendWith(provider: string, mobile: string, variables: string[]): Promise<SendResult> {
+  switch (provider) {
+    case 'httpsms':
+      return sendViaHttpSms(mobile, variables)
+    case 'sms':
+      return sendViaSendpkSms(mobile, variables)
+    case 'twilio':
+      return sendViaTwilio(mobile, variables)
+    default:
+      return sendViaMeta(mobile, variables)
   }
-  if (PROVIDER === 'sms') {
-    if (!SENDPK_SMS_USERNAME || !SENDPK_SMS_PASSWORD) {
-      return 'SMS is not configured. Run: supabase secrets set SENDPK_SMS_USERNAME=... SENDPK_SMS_PASSWORD=...'
-    }
-    return null
-  }
-  if (PROVIDER === 'httpsms') {
-    if (!HTTPSMS_API_KEY || !HTTPSMS_FROM) {
-      return 'httpSMS is not configured. Run: supabase secrets set HTTPSMS_API_KEY=... HTTPSMS_FROM=+92XXXXXXXXXX'
-    }
-    return null
-  }
-  return `Unknown MESSAGE_PROVIDER "${PROVIDER}" — expected "twilio", "meta", "sms" or "httpsms".`
 }
 
 Deno.serve(async (req) => {
@@ -263,9 +291,14 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Method not allowed' }, 405)
   }
 
-  const configError = providerConfigError()
-  if (configError) {
-    return jsonResponse({ error: configError }, 500)
+  // Resolve the chain once per request rather than per student.
+  const unavailable = PROVIDER_CHAIN.map((p) => providerUnavailableReason(p)).filter(Boolean)
+  const usableProviders = PROVIDER_CHAIN.filter((p) => providerUnavailableReason(p) === null)
+  if (usableProviders.length === 0) {
+    return jsonResponse(
+      { error: `No usable message provider configured. ${unavailable.join('; ')}` },
+      500
+    )
   }
 
   const authHeader = req.headers.get('Authorization') ?? ''
@@ -362,16 +395,18 @@ Deno.serve(async (req) => {
     ]
 
     try {
-      const sendResult =
-        PROVIDER === 'twilio'
-          ? await sendViaTwilio(mobile, variables)
-          : PROVIDER === 'sms'
-            ? await sendViaSendpkSms(mobile, variables)
-            : PROVIDER === 'httpsms'
-              ? await sendViaHttpSms(mobile, variables)
-              : await sendViaMeta(mobile, variables)
+      // Walk the chain until one transport accepts the message. Errors are
+      // collected rather than returned on first failure, so a message that
+      // nothing could deliver reports why every route refused it.
+      let sendResult: SendResult = { ok: false }
+      const attemptErrors: string[] = []
+      for (const provider of usableProviders) {
+        sendResult = await sendWith(provider, mobile, variables)
+        if (sendResult.ok) break
+        attemptErrors.push(`${provider}: ${sendResult.error ?? 'failed'}`)
+      }
       if (!sendResult.ok) {
-        outcomes.push({ studentId: result.student_id, ok: false, error: sendResult.error })
+        outcomes.push({ studentId: result.student_id, ok: false, error: attemptErrors.join(' | ') })
         continue
       }
       await adminClient
