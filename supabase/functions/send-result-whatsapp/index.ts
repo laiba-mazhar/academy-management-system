@@ -7,10 +7,11 @@
 //   supabase secrets set SENDPK_API_KEY=your-api-key
 //   supabase secrets set SENDPK_TEMPLATE_ID=your-approved-template-id
 //
-// The template must be approved by WhatsApp/Meta first, with SIX variables in
+// The template must be approved by WhatsApp/Meta first, with SEVEN variables in
 // this exact order (see README): {{1}} guardian, {{2}} student, {{3}} marks,
-// {{4}} total marks, {{5}} subject, {{6}} exam name. If your approved template
-// uses different variable placeholder keys, adjust `template_data` below.
+// {{4}} total marks, {{5}} subject, {{6}} exam name, {{7}} Pass/Fail. If your
+// approved template uses different variable placeholder keys, adjust
+// `template_data` below.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts'
@@ -20,6 +21,10 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const SENDPK_API_KEY = Deno.env.get('SENDPK_API_KEY')
 const SENDPK_TEMPLATE_ID = Deno.env.get('SENDPK_TEMPLATE_ID')
 const SENDPK_ENDPOINT = 'https://wa.sendpk.com/api/send.php'
+
+// Mirrors PASS_THRESHOLD in the admin/teacher dashboards — if your institute
+// changes the passing mark, update it there and here together.
+const PASS_THRESHOLD = 40
 
 // Mirrors src/lib/utils.ts:toPakistaniMsisdn — kept in sync by hand since the
 // edge function (Deno) can't import from the Vite app's src tree.
@@ -128,6 +133,11 @@ Deno.serve(async (req) => {
       continue
     }
 
+    // Guard against a zero/invalid total so a bad exam row can't report a
+    // pass off a division by zero.
+    const pct = exam.total_marks > 0 ? (result.marks_obtained / exam.total_marks) * 100 : 0
+    const passLabel = pct >= PASS_THRESHOLD ? 'Pass' : 'Fail'
+
     // Variable order MUST match the approved template (see README).
     const templateData = [
       {
@@ -138,6 +148,7 @@ Deno.serve(async (req) => {
         '4': String(exam.total_marks),
         '5': subjectName,
         '6': exam.name,
+        '7': passLabel,
       },
     ]
 
