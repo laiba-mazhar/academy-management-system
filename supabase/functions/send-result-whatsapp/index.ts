@@ -4,7 +4,21 @@
 //
 // Deploy: supabase functions deploy send-result-whatsapp
 //
-// Three providers are supported; pick one with the MESSAGE_PROVIDER secret.
+// Four providers are supported; pick one with the MESSAGE_PROVIDER secret.
+//
+//   MESSAGE_PROVIDER=httpsms  — cheapest. Sends through an Android phone
+//     running the httpSMS app on an ordinary carrier SMS bundle (a Jazz/Telenor
+//     monthly bundle works out around PKR 0.004-0.008 per SMS against ~PKR 1+
+//     from a commercial gateway). httpSMS itself is free and the phone polls
+//     their relay, so no port-forwarding is needed.
+//       supabase secrets set MESSAGE_PROVIDER=httpsms
+//       supabase secrets set HTTPSMS_API_KEY=your-api-key
+//       supabase secrets set HTTPSMS_FROM=+92XXXXXXXXXX   # the phone's own number
+//     Optional: HTTPSMS_ENDPOINT (defaults to their v1 send URL).
+//     Caveats worth knowing before relying on this: consumer bundles are sold
+//     for personal use and carriers cap daily SMS (often 300-500) and can block
+//     a SIM that looks like a bulk sender; throughput is roughly one SMS every
+//     few seconds; and the sender shows as the SIM's number, never a brand.
 //
 //   MESSAGE_PROVIDER=sms      — SendPK SMS. The only channel here that does
 //     not depend on a Meta WhatsApp Business Account, so it keeps working when
@@ -51,6 +65,10 @@ const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID')
 const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN')
 const TWILIO_WHATSAPP_FROM = Deno.env.get('TWILIO_WHATSAPP_FROM') ?? 'whatsapp:+14155238886'
 
+const HTTPSMS_API_KEY = Deno.env.get('HTTPSMS_API_KEY')
+const HTTPSMS_FROM = Deno.env.get('HTTPSMS_FROM')
+const HTTPSMS_ENDPOINT = Deno.env.get('HTTPSMS_ENDPOINT') ?? 'https://api.httpsms.com/v1/messages/send'
+
 const SENDPK_SMS_USERNAME = Deno.env.get('SENDPK_SMS_USERNAME')
 const SENDPK_SMS_PASSWORD = Deno.env.get('SENDPK_SMS_PASSWORD')
 const SENDPK_SMS_SENDER = Deno.env.get('SENDPK_SMS_SENDER') ?? 'Maktab'
@@ -96,6 +114,33 @@ function composeMessage(v: string[]): string {
 function composeSms(v: string[]): string {
   const [, student, marks, total, subject, examName, passLabel] = v
   return `Maktab: ${student} scored ${marks}/${total} in ${subject} (${examName}). Result: ${passLabel}.`
+}
+
+// Sends through an Android phone running the httpSMS app, using whatever SMS
+// bundle that phone's SIM is on — the cheapest route by a wide margin, since a
+// carrier bundle costs a fraction of a paisa per message against ~PKR 1+ from a
+// commercial gateway. The phone polls httpSMS, so no port-forwarding or static
+// IP is needed. Endpoint and field names are overridable because their API
+// reference is not publicly fetchable; a shape change is then a secret edit
+// rather than a redeploy.
+async function sendViaHttpSms(mobile: string, variables: string[]): Promise<SendResult> {
+  const res = await fetch(HTTPSMS_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'x-api-key': HTTPSMS_API_KEY!,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      content: composeSms(variables),
+      from: HTTPSMS_FROM,
+      to: `+${mobile}`,
+    }),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    return { ok: false, error: text.slice(0, 300) || `httpSMS returned status ${res.status}` }
+  }
+  return { ok: true }
 }
 
 async function sendViaSendpkSms(mobile: string, variables: string[]): Promise<SendResult> {
@@ -201,7 +246,13 @@ function providerConfigError(): string | null {
     }
     return null
   }
-  return `Unknown MESSAGE_PROVIDER "${PROVIDER}" — expected "twilio", "meta" or "sms".`
+  if (PROVIDER === 'httpsms') {
+    if (!HTTPSMS_API_KEY || !HTTPSMS_FROM) {
+      return 'httpSMS is not configured. Run: supabase secrets set HTTPSMS_API_KEY=... HTTPSMS_FROM=+92XXXXXXXXXX'
+    }
+    return null
+  }
+  return `Unknown MESSAGE_PROVIDER "${PROVIDER}" — expected "twilio", "meta", "sms" or "httpsms".`
 }
 
 Deno.serve(async (req) => {
@@ -316,7 +367,9 @@ Deno.serve(async (req) => {
           ? await sendViaTwilio(mobile, variables)
           : PROVIDER === 'sms'
             ? await sendViaSendpkSms(mobile, variables)
-            : await sendViaMeta(mobile, variables)
+            : PROVIDER === 'httpsms'
+              ? await sendViaHttpSms(mobile, variables)
+              : await sendViaMeta(mobile, variables)
       if (!sendResult.ok) {
         outcomes.push({ studentId: result.student_id, ok: false, error: sendResult.error })
         continue

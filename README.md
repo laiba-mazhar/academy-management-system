@@ -28,7 +28,20 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    supabase secrets set RESEND_API_KEY=your-resend-api-key
    ```
    **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Maktab - The Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
-7. For **exam-result messages** to guardians. Three providers are supported, selected with the `MESSAGE_PROVIDER` secret — **Twilio** for testing (no Meta account, no template approval), **Meta** for production WhatsApp, and **SMS** via SendPK.
+7. For **exam-result messages** to guardians. Four providers are supported, selected with the `MESSAGE_PROVIDER` secret — **httpSMS** (cheapest, sends via a carrier SMS bundle on your own Android phone), **SMS** via SendPK, **Twilio** for testing (no Meta account, no template approval), and **Meta** for production WhatsApp.
+
+   **httpSMS via a carrier bundle** (`MESSAGE_PROVIDER=httpsms`) is by far the cheapest route. A Jazz or Telenor monthly SMS bundle (roughly Rs 40–99 for 10,000–12,000 SMS) works out near **PKR 0.004–0.008 per message**, against ~PKR 1+ from a commercial gateway — so a whole month of alerts costs less than a hundred rupees. Setup:
+   1. Put a SIM with a monthly SMS bundle in a spare Android phone; keep it charged and on WiFi.
+   2. Create a free account at [httpsms.com](https://httpsms.com), copy the API key from Settings, install their Android app and sign in with that key.
+   3. Set the secrets:
+      ```
+      supabase secrets set MESSAGE_PROVIDER=httpsms
+      supabase secrets set HTTPSMS_API_KEY=your-api-key
+      supabase secrets set HTTPSMS_FROM=+92XXXXXXXXXX
+      ```
+      `HTTPSMS_FROM` is the phone's own number. `HTTPSMS_ENDPOINT` can override the send URL if their API shape changes.
+
+   **Know the trade-offs before relying on it**: consumer bundles are sold for personal use and PTA rules expect commercial traffic on registered A2P routes; carriers cap daily SMS (often 300–500) and may block a SIM that looks like a bulk sender; throughput is roughly one SMS every few seconds, so a large bulk send is slow and can exceed the edge function's execution limit; the sender always shows as the SIM's number, never a brand; and there's no redundancy — one phone, one SIM. It suits a steady trickle of daily alerts far better than blasting a whole school's results at once. For a fully compliant alternative at similar-ish cost, ask Jazz/Telenor/Zong for a corporate A2P quote.
 
    **SMS via SendPK** (`MESSAGE_PROVIDER=sms`) is the only option here that doesn't depend on a Meta WhatsApp Business Account, so it keeps working even when a Meta business portfolio is restricted — and it costs roughly a third of WhatsApp per message in Pakistan.
    ```
