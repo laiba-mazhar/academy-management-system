@@ -1,26 +1,36 @@
-// Sends a student's exam result to their guardian over WhatsApp via SendPK
-// (wa.sendpk.com). Runs server-side because it needs the SendPK API key, which
-// must never reach the browser — same reasoning as the other edge functions.
+// Sends a student's exam result to their guardian over WhatsApp via Meta's
+// WhatsApp Cloud API. Runs server-side because it needs the access token,
+// which must never reach the browser — same reasoning as the other edge
+// functions.
 //
 // Deploy: supabase functions deploy send-result-whatsapp
-// Requires two secrets (set them yourself so the key never lives in the repo):
-//   supabase secrets set SENDPK_API_KEY=your-api-key
-//   supabase secrets set SENDPK_TEMPLATE_ID=your-approved-template-id
+// Required secrets (set them yourself so the token never lives in the repo):
+//   supabase secrets set WHATSAPP_ACCESS_TOKEN=your-token
+//   supabase secrets set WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
+// Optional overrides:
+//   WHATSAPP_TEMPLATE_NAME (default "result_notification")
+//   WHATSAPP_TEMPLATE_LANG (default "en")
+//   WHATSAPP_API_VERSION   (default "v23.0")
 //
-// The template must be approved by WhatsApp/Meta first, with SEVEN variables in
-// this exact order (see README): {{1}} guardian, {{2}} student, {{3}} marks,
-// {{4}} total marks, {{5}} subject, {{6}} exam name, {{7}} Pass/Fail. If your
-// approved template uses different variable placeholder keys, adjust
-// `template_data` below.
+// The template must be approved in WhatsApp Manager with SEVEN body variables
+// in this exact order (see README): {{1}} guardian, {{2}} student, {{3}} marks,
+// {{4}} total marks, {{5}} subject, {{6}} exam name, {{7}} Pass/Fail.
+//
+// Testing note: Meta's free test number only delivers to recipient numbers you
+// have explicitly added in the developer dashboard, and its quick-start access
+// token expires after 24 hours — a 401/190 from Meta usually means the token
+// expired, not that this function is broken.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const SENDPK_API_KEY = Deno.env.get('SENDPK_API_KEY')
-const SENDPK_TEMPLATE_ID = Deno.env.get('SENDPK_TEMPLATE_ID')
-const SENDPK_ENDPOINT = 'https://wa.sendpk.com/api/send.php'
+const WHATSAPP_ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN')
+const WHATSAPP_PHONE_NUMBER_ID = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID')
+const TEMPLATE_NAME = Deno.env.get('WHATSAPP_TEMPLATE_NAME') ?? 'result_notification'
+const TEMPLATE_LANG = Deno.env.get('WHATSAPP_TEMPLATE_LANG') ?? 'en'
+const API_VERSION = Deno.env.get('WHATSAPP_API_VERSION') ?? 'v23.0'
 
 // Mirrors PASS_THRESHOLD in the admin/teacher dashboards — if your institute
 // changes the passing mark, update it there and here together.
@@ -46,11 +56,11 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Method not allowed' }, 405)
   }
 
-  if (!SENDPK_API_KEY || !SENDPK_TEMPLATE_ID) {
+  if (!WHATSAPP_ACCESS_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
     return jsonResponse(
       {
         error:
-          'SendPK is not configured. Run: supabase secrets set SENDPK_API_KEY=your-key SENDPK_TEMPLATE_ID=your-template-id',
+          'WhatsApp is not configured. Run: supabase secrets set WHATSAPP_ACCESS_TOKEN=your-token WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id',
       },
       500
     )
@@ -119,6 +129,7 @@ Deno.serve(async (req) => {
     .in('id', studentIds)
   const studentById = new Map((students ?? []).map((s) => [s.id, s]))
 
+  const endpoint = `https://graph.facebook.com/${API_VERSION}/${WHATSAPP_PHONE_NUMBER_ID}/messages`
   const outcomes: { studentId: string; ok: boolean; error?: string }[] = []
 
   for (const result of results) {
@@ -138,42 +149,51 @@ Deno.serve(async (req) => {
     const pct = exam.total_marks > 0 ? (result.marks_obtained / exam.total_marks) * 100 : 0
     const passLabel = pct >= PASS_THRESHOLD ? 'Pass' : 'Fail'
 
-    // Variable order MUST match the approved template (see README).
-    const templateData = [
-      {
-        mobile,
-        '1': student.guardian_name ?? 'Parent/Guardian',
-        '2': student.full_name,
-        '3': String(result.marks_obtained),
-        '4': String(exam.total_marks),
-        '5': subjectName,
-        '6': exam.name,
-        '7': passLabel,
-      },
+    // Parameter order MUST match the approved template (see README).
+    const variables = [
+      student.guardian_name ?? 'Parent/Guardian',
+      student.full_name,
+      String(result.marks_obtained),
+      String(exam.total_marks),
+      subjectName,
+      exam.name,
+      passLabel,
     ]
 
-    const form = new URLSearchParams({
-      api_key: SENDPK_API_KEY,
-      template_id: SENDPK_TEMPLATE_ID,
-      template_data: JSON.stringify(templateData),
-    })
+    const payload = {
+      messaging_product: 'whatsapp',
+      to: mobile,
+      type: 'template',
+      template: {
+        name: TEMPLATE_NAME,
+        language: { code: TEMPLATE_LANG },
+        components: [
+          {
+            type: 'body',
+            parameters: variables.map((text) => ({ type: 'text', text })),
+          },
+        ],
+      },
+    }
 
     try {
-      const res = await fetch(SENDPK_ENDPOINT, {
+      const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: form.toString(),
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
       })
-      const text = await res.text()
-      // SendPK can return 200 with an error payload, so check both the status
-      // and the body for a failure signal before counting it as sent.
-      const looksFailed =
-        !res.ok || /"?(status|success)"?\s*[:=]\s*"?(error|false|0|failed)"?/i.test(text) || /error/i.test(text)
-      if (looksFailed) {
+      const resBody = await res.json().catch(() => ({}))
+      if (!res.ok || resBody?.error) {
+        // Meta's error messages are specific and actionable (expired token,
+        // recipient not in the test allow-list, template not approved) — pass
+        // them straight through rather than flattening to a generic failure.
         outcomes.push({
           studentId: result.student_id,
           ok: false,
-          error: text.slice(0, 300) || `SendPK returned status ${res.status}`,
+          error: resBody?.error?.message ?? `WhatsApp API returned status ${res.status}`,
         })
         continue
       }
