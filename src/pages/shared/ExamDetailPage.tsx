@@ -243,13 +243,13 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
 
   type SendOutcome = { studentId: string; ok: boolean; error?: string }
 
-  async function sendWhatsApp(studentIds: string[]): Promise<{ sent: number; total: number; results: SendOutcome[] } | null> {
+  async function sendToParents(studentIds: string[]): Promise<{ sent: number; total: number; results: SendOutcome[] } | null> {
     if (!exam) return null
     const { data, error } = await supabase.functions.invoke('send-result-whatsapp', {
       body: { examId: exam.id, studentIds },
     })
     if (error) {
-      show(await edgeFunctionError(error, 'Failed to send WhatsApp message.'), 'error')
+      show(await edgeFunctionError(error, 'Failed to send message.'), 'error')
       return null
     }
     const result = data as { error?: string; sent?: number; total?: number; results?: SendOutcome[] }
@@ -270,11 +270,11 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
 
   async function handleSendOne(studentId: string) {
     setSendingWaId(studentId)
-    const result = await sendWhatsApp([studentId])
+    const result = await sendToParents([studentId])
     setSendingWaId(null)
     if (!result) return
     const outcome = result.results.find((o) => o.studentId === studentId)
-    if (outcome?.ok) show('Result sent on WhatsApp.')
+    if (outcome?.ok) show('Result sent to parent.')
     else show(outcome?.error ?? 'Message could not be sent.', 'error')
   }
 
@@ -283,9 +283,9 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
       show('No students with saved marks and a valid guardian phone.', 'error')
       return
     }
-    if (!window.confirm(`Send exam results to ${notifiable.length} parent(s) on WhatsApp?`)) return
+    if (!window.confirm(`Send exam results to ${notifiable.length} parent(s)?`)) return
     setBulkSendingWa(true)
-    const result = await sendWhatsApp(notifiable.map((s) => s.id))
+    const result = await sendToParents(notifiable.map((s) => s.id))
     setBulkSendingWa(false)
     if (!result) return
     const failed = result.total - result.sent
@@ -474,7 +474,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                   <th className="px-4 py-3">Student</th>
                   <th className="px-4 py-3">Marks Obtained</th>
                   <th className="px-4 py-3">Percentage</th>
-                  <th className="px-4 py-3">Parent (WhatsApp)</th>
+                  <th className="px-4 py-3">Parent Notification</th>
                 </tr>
               </thead>
               <tbody>
@@ -522,7 +522,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                                   title={rowDirty ? 'Save the updated mark before sending' : undefined}
                                   className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                  {sendingWaId === s.id ? 'Sending…' : sentAt ? 'Resend' : 'Send WhatsApp'}
+                                  {sendingWaId === s.id ? 'Sending…' : sentAt ? 'Resend' : 'Send to Parent'}
                                 </button>
                                 {sentAt && (
                                   <span className="text-xs text-green-600 dark:text-green-400">
