@@ -20,13 +20,22 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    supabase functions deploy create-teacher
    supabase functions deploy delete-teacher
    supabase functions deploy send-fee-reminder
+   supabase functions deploy send-result-whatsapp
    ```
-   (Requires the Supabase CLI, logged in and linked to your project — `npx supabase login` then `npx supabase link`. All three read `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` from the Supabase-managed function environment automatically, and all send CORS headers so they work when called from the browser.) Everything else in the app works without these — only "Add Teacher", "Delete Teacher", and "Send Reminder" (Fees page) depend on them.
+   (Requires the Supabase CLI, logged in and linked to your project — `npx supabase login` then `npx supabase link`. All four read `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` from the Supabase-managed function environment automatically, and all send CORS headers so they work when called from the browser.) Everything else in the app works without these — only "Add Teacher", "Delete Teacher", "Send Reminder" (Fees page), and "Send WhatsApp" (exam Marks Entry) depend on them.
 6. For real fee-reminder emails, sign up at https://resend.com (free tier: 3,000 emails/month) and create an API key, then set it as a function secret:
    ```
    supabase secrets set RESEND_API_KEY=your-resend-api-key
    ```
    **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Maktab - The Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
+7. For **WhatsApp exam-result messages** to guardians (via [SendPK](https://wa.sendpk.com)), create an account there, then:
+   1. Create + submit a WhatsApp message template for approval with **six variables in this exact order**: `{{1}}` guardian name, `{{2}}` student name, `{{3}}` marks obtained, `{{4}}` total marks, `{{5}}` subject, `{{6}}` exam name — e.g. *"Dear {{1}}, your child {{2}} scored {{3}} out of {{4}} marks in {{5}} ({{6}}). ..."*. Choose the **Utility** category (a result notice is transactional, not marketing — cheaper and more likely to be approved).
+   2. Once approved, note its **template ID** and set both secrets (the API key must never live in the repo or the browser):
+      ```
+      supabase secrets set SENDPK_API_KEY=your-sendpk-api-key
+      supabase secrets set SENDPK_TEMPLATE_ID=your-approved-template-id
+      ```
+   Guardian phone numbers are normalized to Pakistan's `92XXXXXXXXXX` format automatically, so `0300-1234567`, `+92 300 1234567`, etc. all work. If your approved template uses different variable placeholder keys, adjust `template_data` in `supabase/functions/send-result-whatsapp/index.ts`. If you edit the template's wording later, keep the six variables in the same order or the messages will come out scrambled.
 
 ## Running the app
 

@@ -5,8 +5,8 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Textarea } from '@/components/ui/Input'
 import { DocumentLetterhead } from '@/components/DocumentLetterhead'
-import { formatDate, percentage } from '@/lib/utils'
-import { friendlyError } from '@/lib/errors'
+import { formatDate, formatDateTime, percentage, toPakistaniMsisdn } from '@/lib/utils'
+import { edgeFunctionError, friendlyError } from '@/lib/errors'
 import type { Class, Exam, ExamQuestion, ExamResult, Question, Student, Subject } from '@/types/database'
 
 export function ExamDetailPage({ basePath }: { basePath: string }) {
@@ -21,6 +21,9 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   const [students, setStudents] = useState<Student[]>([])
   const [results, setResults] = useState<Record<string, string>>({})
   const [savedResults, setSavedResults] = useState<Record<string, string>>({})
+  const [whatsappSentAt, setWhatsappSentAt] = useState<Record<string, string | null>>({})
+  const [sendingWaId, setSendingWaId] = useState<string | null>(null)
+  const [bulkSendingWa, setBulkSendingWa] = useState(false)
   const [loading, setLoading] = useState(true)
   const [savingMarks, setSavingMarks] = useState(false)
   const [showAddQuestion, setShowAddQuestion] = useState(false)
@@ -59,9 +62,14 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     if (studentsRes.data) setStudents(studentsRes.data as Student[])
     if (resultsRes.data) {
       const map: Record<string, string> = {}
-      for (const r of resultsRes.data as ExamResult[]) map[r.student_id] = String(r.marks_obtained)
+      const sentMap: Record<string, string | null> = {}
+      for (const r of resultsRes.data as ExamResult[]) {
+        map[r.student_id] = String(r.marks_obtained)
+        sentMap[r.student_id] = r.whatsapp_sent_at
+      }
       setResults(map)
       setSavedResults(map)
+      setWhatsappSentAt(sentMap)
     }
     setLoading(false)
   }
@@ -222,6 +230,67 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     }
     setSavedResults(results)
     show('Marks saved.')
+  }
+
+  // Students who can actually be messaged: they have a saved mark and a
+  // guardian phone that normalizes to a valid PK mobile number.
+  const notifiable = students.filter(
+    (s) =>
+      savedResults[s.id] !== undefined &&
+      savedResults[s.id] !== '' &&
+      toPakistaniMsisdn(s.guardian_phone) !== null
+  )
+
+  type SendOutcome = { studentId: string; ok: boolean; error?: string }
+
+  async function sendWhatsApp(studentIds: string[]): Promise<{ sent: number; total: number; results: SendOutcome[] } | null> {
+    if (!exam) return null
+    const { data, error } = await supabase.functions.invoke('send-result-whatsapp', {
+      body: { examId: exam.id, studentIds },
+    })
+    if (error) {
+      show(await edgeFunctionError(error, 'Failed to send WhatsApp message.'), 'error')
+      return null
+    }
+    const result = data as { error?: string; sent?: number; total?: number; results?: SendOutcome[] }
+    if (result?.error) {
+      show(result.error, 'error')
+      return null
+    }
+    const now = new Date().toISOString()
+    if (result.results) {
+      setWhatsappSentAt((prev) => {
+        const next = { ...prev }
+        for (const o of result.results!) if (o.ok) next[o.studentId] = now
+        return next
+      })
+    }
+    return { sent: result.sent ?? 0, total: result.total ?? 0, results: result.results ?? [] }
+  }
+
+  async function handleSendOne(studentId: string) {
+    setSendingWaId(studentId)
+    const result = await sendWhatsApp([studentId])
+    setSendingWaId(null)
+    if (!result) return
+    const outcome = result.results.find((o) => o.studentId === studentId)
+    if (outcome?.ok) show('Result sent on WhatsApp.')
+    else show(outcome?.error ?? 'Message could not be sent.', 'error')
+  }
+
+  async function handleSendAll() {
+    if (notifiable.length === 0) {
+      show('No students with saved marks and a valid guardian phone.', 'error')
+      return
+    }
+    if (!window.confirm(`Send exam results to ${notifiable.length} parent(s) on WhatsApp?`)) return
+    setBulkSendingWa(true)
+    const result = await sendWhatsApp(notifiable.map((s) => s.id))
+    setBulkSendingWa(false)
+    if (!result) return
+    const failed = result.total - result.sent
+    if (failed === 0) show(`Results sent to ${result.sent} parent(s).`)
+    else show(`Sent to ${result.sent} of ${result.total}. ${failed} could not be delivered — check their phone numbers.`, 'error')
   }
 
   const selectedQuestions = questions
@@ -405,12 +474,13 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                   <th className="px-4 py-3">Student</th>
                   <th className="px-4 py-3">Marks Obtained</th>
                   <th className="px-4 py-3">Percentage</th>
+                  <th className="px-4 py-3">Parent (WhatsApp)</th>
                 </tr>
               </thead>
               <tbody>
                 {students.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
                       No enrolled students in this class.
                     </td>
                   </tr>
@@ -434,6 +504,35 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                           />
                         </td>
                         <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{pct !== null ? `${pct}%` : '—'}</td>
+                        <td className="px-4 py-3">
+                          {(() => {
+                            const hasSavedMark = savedResults[s.id] !== undefined && savedResults[s.id] !== ''
+                            const validPhone = toPakistaniMsisdn(s.guardian_phone) !== null
+                            const rowDirty = (results[s.id] ?? '') !== (savedResults[s.id] ?? '')
+                            const sentAt = whatsappSentAt[s.id]
+                            if (!hasSavedMark)
+                              return <span className="text-xs text-slate-400 dark:text-slate-500">Save a mark first</span>
+                            if (!validPhone)
+                              return <span className="text-xs text-amber-600 dark:text-amber-400">No valid phone</span>
+                            return (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  onClick={() => handleSendOne(s.id)}
+                                  disabled={sendingWaId === s.id || rowDirty}
+                                  title={rowDirty ? 'Save the updated mark before sending' : undefined}
+                                  className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {sendingWaId === s.id ? 'Sending…' : sentAt ? 'Resend' : 'Send WhatsApp'}
+                                </button>
+                                {sentAt && (
+                                  <span className="text-xs text-green-600 dark:text-green-400">
+                                    Sent {formatDateTime(sentAt)}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })()}
+                        </td>
                       </tr>
                     )
                   })
@@ -441,7 +540,23 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
               </tbody>
             </table>
           </div>
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              onClick={handleSendAll}
+              disabled={bulkSendingWa || marksDirty || notifiable.length === 0}
+              title={
+                marksDirty
+                  ? 'Save marks before sending'
+                  : notifiable.length === 0
+                    ? 'No students with saved marks and a valid guardian phone'
+                    : undefined
+              }
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkSendingWa
+                ? 'Sending…'
+                : `Send results to all parents${notifiable.length ? ` (${notifiable.length})` : ''}`}
+            </button>
             <Button onClick={handleSaveMarks} disabled={savingMarks || students.length === 0}>
               {savingMarks ? 'Saving...' : 'Save Marks'}
             </Button>

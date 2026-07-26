@@ -127,6 +127,7 @@ export interface ExamResult {
   marks_obtained: number
   entered_by: string | null
   created_at: string
+  whatsapp_sent_at: string | null
 }
 
 export interface Timetable {
