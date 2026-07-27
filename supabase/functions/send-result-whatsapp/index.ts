@@ -4,7 +4,7 @@
 //
 // Deploy: supabase functions deploy send-result-whatsapp
 //
-// Five providers are supported; pick one with the MESSAGE_PROVIDER secret, or
+// Six providers are supported; pick one with the MESSAGE_PROVIDER secret, or
 // list several comma-separated to get automatic failover. The recommended
 // production setting pairs the cheap phone-based route with a paid gateway:
 //
@@ -38,6 +38,17 @@
 //       supabase secrets set SENDPK_SMS_SENDER=Maktab
 //     A branded sender ID needs PTA/NTN registration; without one the gateway
 //     falls back to its own numeric sender.
+//
+//   MESSAGE_PROVIDER=whapi    — WhatsApp via Whapi.Cloud, which pairs a normal
+//     WhatsApp account by QR code instead of going through Meta. No Meta app, no
+//     business verification, no template approval, and free-form text.
+//       supabase secrets set MESSAGE_PROVIDER=whapi
+//       supabase secrets set WHAPI_TOKEN=your-token
+//     Optional: WHAPI_ENDPOINT (defaults to their text-message URL).
+//     Unofficial: automated bulk sending breaches WhatsApp's terms and bans hit
+//     the number itself, taking the institute's ordinary WhatsApp with it.
+//     Prefer a chain such as "whapi,meta" so a dropped session or a ban still
+//     leaves parents notified.
 //
 //   MESSAGE_PROVIDER=sendpk-wa — WhatsApp where SendPK is the provider holding
 //     the number. Meta only lets one provider hold a number at a time, so if the
@@ -94,6 +105,9 @@ const TWILIO_WHATSAPP_FROM = Deno.env.get('TWILIO_WHATSAPP_FROM') ?? 'whatsapp:+
 const HTTPSMS_API_KEY = Deno.env.get('HTTPSMS_API_KEY')
 const HTTPSMS_FROM = Deno.env.get('HTTPSMS_FROM')
 const HTTPSMS_ENDPOINT = Deno.env.get('HTTPSMS_ENDPOINT') ?? 'https://api.httpsms.com/v1/messages/send'
+
+const WHAPI_TOKEN = Deno.env.get('WHAPI_TOKEN')
+const WHAPI_ENDPOINT = Deno.env.get('WHAPI_ENDPOINT') ?? 'https://gate.whapi.cloud/messages/text'
 
 const SENDPK_WA_API_KEY = Deno.env.get('SENDPK_WA_API_KEY')
 const SENDPK_WA_TEMPLATE_ID = Deno.env.get('SENDPK_WA_TEMPLATE_ID')
@@ -168,6 +182,32 @@ async function sendViaHttpSms(mobile: string, variables: string[]): Promise<Send
   const text = await res.text()
   if (!res.ok) {
     return { ok: false, error: text.slice(0, 300) || `httpSMS returned status ${res.status}` }
+  }
+  return { ok: true }
+}
+
+// WhatsApp through Whapi.Cloud, which drives a WhatsApp account paired by QR
+// code rather than going through Meta. That means no Meta app, no business
+// verification and no approved template — free-form text sends straight away.
+//
+// The trade-off is real and worth restating where the code lives: this is not
+// an official Meta route, automated bulk sending is against WhatsApp's terms,
+// and enforcement lands on the *number*, so a ban takes the institute's normal
+// WhatsApp with it. Sensible use is a modest, steady volume, and pairing it
+// with an official fallback (MESSAGE_PROVIDER=whapi,meta) so a dropped session
+// or a ban doesn't stop parents being notified.
+async function sendViaWhapi(mobile: string, variables: string[]): Promise<SendResult> {
+  const res = await fetch(WHAPI_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${WHAPI_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ to: mobile, body: composeMessage(variables) }),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    return { ok: false, error: text.slice(0, 300) || `Whapi returned status ${res.status}` }
   }
   return { ok: true }
 }
@@ -284,7 +324,7 @@ async function sendViaMeta(mobile: string, variables: string[]): Promise<SendRes
 
 // Returns an error string when the selected provider isn't fully configured,
 // so a misconfiguration fails loudly up front instead of once per student.
-const KNOWN_PROVIDERS = ['httpsms', 'sms', 'sendpk-wa', 'twilio', 'meta'] as const
+const KNOWN_PROVIDERS = ['httpsms', 'sms', 'whapi', 'sendpk-wa', 'twilio', 'meta'] as const
 
 // Why a given provider can't be used right now, or null if it's ready.
 function providerUnavailableReason(provider: string): string | null {
@@ -297,6 +337,8 @@ function providerUnavailableReason(provider: string): string | null {
       return !SENDPK_SMS_USERNAME || !SENDPK_SMS_PASSWORD
         ? 'sms: set SENDPK_SMS_USERNAME and SENDPK_SMS_PASSWORD'
         : null
+    case 'whapi':
+      return !WHAPI_TOKEN ? 'whapi: set WHAPI_TOKEN' : null
     case 'sendpk-wa':
       return !SENDPK_WA_API_KEY || !SENDPK_WA_TEMPLATE_ID
         ? 'sendpk-wa: set SENDPK_WA_API_KEY and SENDPK_WA_TEMPLATE_ID'
@@ -320,6 +362,8 @@ function sendWith(provider: string, mobile: string, variables: string[]): Promis
       return sendViaHttpSms(mobile, variables)
     case 'sms':
       return sendViaSendpkSms(mobile, variables)
+    case 'whapi':
+      return sendViaWhapi(mobile, variables)
     case 'sendpk-wa':
       return sendViaSendpkWhatsApp(mobile, variables)
     case 'twilio':
