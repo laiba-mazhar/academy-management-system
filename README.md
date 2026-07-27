@@ -28,10 +28,13 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    ```
    **Sandbox limitation (Resend)**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Maktab - The Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
 
-7. Create the **attendance desk account** — the kiosk login used at the gate to scan student cards:
-   - Auth → Users → Add user → email `attendance@maktab.edu.pk`, password `Maktab@Scan2026`, **Auto Confirm User: ON**.
-   - In the SQL Editor, run `supabase/setup/create_attendance_user.sql` (it turns that auth user into a profile with the `attendance` role).
-   - Change the password afterwards if you like — nothing in the app hardcodes it.
+7. Create the **attendance desk account** — the kiosk login used at the gate to scan student cards. In the SQL Editor, run `supabase/setup/create_attendance_user.sql`. That one script creates the login, confirms its email, and gives it the `attendance` role:
+
+   | Email | Password |
+   | --- | --- |
+   | `attendance@maktab.edu.pk` | `Maktab@Scan2026` |
+
+   Signing in with it lands straight on the scanning screen at `/scan`. To change the password later, edit `v_password` at the top of that file and run it again (it's safe to re-run — it resets the existing account rather than creating a second one). Nothing in the app hardcodes the credentials.
 
 ## Running the app
 
