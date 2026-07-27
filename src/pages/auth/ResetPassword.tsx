@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { homePathForRole } from '@/lib/utils'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
 // A password-recovery link (from "Forgot password?") lands here the same way
@@ -60,7 +61,7 @@ export function ResetPassword() {
   }
 
   if (!loading && profile && !profile.must_reset_password && !isRecovery) {
-    return <Navigate to={profile.role === 'admin' ? '/admin' : '/teacher'} replace />
+    return <Navigate to={homePathForRole(profile.role)} replace />
   }
 
   async function handleSubmit(e: FormEvent) {

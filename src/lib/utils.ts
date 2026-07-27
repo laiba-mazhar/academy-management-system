@@ -1,4 +1,12 @@
-import type { Class, Student } from '@/types/database'
+import type { Class, Student, UserRole } from '@/types/database'
+
+// Where a signed-in user belongs, by role — used by the login redirect, the
+// forced-password-reset screen, and the wrong-panel bounce in ProtectedRoute.
+export function homePathForRole(role: UserRole): string {
+  if (role === 'admin') return '/admin'
+  if (role === 'attendance') return '/scan'
+  return '/teacher'
+}
 
 export function effectiveFee(student: Student, classById: Map<string, Class>): number {
   if (student.fee_override !== null && student.fee_override !== undefined) return student.fee_override

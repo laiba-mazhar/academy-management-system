@@ -6,10 +6,12 @@ import { TopBar } from './TopBar'
 const navItems: NavItem[] = [
   { label: 'Dashboard', to: '/admin', end: true },
   { label: 'Students', to: '/admin/students' },
+  { label: 'Student Cards', to: '/admin/student-cards' },
   { label: 'Teachers', to: '/admin/teachers' },
   { label: 'Classes & Subjects', to: '/admin/classes' },
   { label: 'Timetable', to: '/admin/timetable' },
   { label: 'Attendance', to: '/admin/attendance' },
+  { label: 'Barcode Sign-in', to: '/admin/scanner' },
   { label: 'Fees', to: '/admin/fees' },
   { label: 'Fee Challans', to: '/admin/fee-challans' },
   { label: 'Salaries', to: '/admin/salaries' },

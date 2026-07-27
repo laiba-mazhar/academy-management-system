@@ -93,6 +93,14 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
 
    **Going live** (moving off the test number): generate a permanent System User token, add the institute's real number in WhatsApp Manager, complete Meta Business verification, add a billing method, and re-create the template under the production WhatsApp Business Account. Re-set `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` to the production values.
 
+8. Create the **attendance desk account** — the kiosk login used at the gate to scan student cards. In the SQL Editor, run `supabase/setup/create_attendance_user.sql`. That one script creates the login, confirms its email, and gives it the `attendance` role:
+
+   | Email | Password |
+   | --- | --- |
+   | `attendance@maktab.edu.pk` | `Maktab@Scan2026` |
+
+   Signing in with it lands straight on the scanning screen at `/scan`. To change the password later, edit `v_password` at the top of that file and run it again (it's safe to re-run — it resets the existing account rather than creating a second one). Nothing in the app hardcodes the credentials.
+
 ## Running the app
 
 ```
@@ -104,12 +112,14 @@ Then sign in with the admin account created above at `/login`.
 
 ## What's in each area
 
-- **Auth**: role-based login, forced password reset on first login, teacher-issued-by-admin accounts. Split-panel branded login screen with a light/dark theme toggle (sun/moon icon, top right).
+- **Auth**: three roles — `admin`, `teacher`, and `attendance` (the front-desk scanning kiosk, which can do nothing but record a card sign-in). Role-based login, forced password reset on first login, teacher-issued-by-admin accounts. Split-panel branded login screen with a light/dark theme toggle (sun/moon icon, top right).
 - **Students** (`/admin/students`): full CRUD, search/filter by class/category/status. Admission form captures a per-student monthly fee override (defaults from the class fee, editable), plus admission-fee and security-fee amount + paid/unpaid toggles. Clicking a student (or "View Report") opens their full report: exam history and a **missed-exam list** — any exam held for their class that has no recorded result for them, flagged in red.
 - **Teachers** (`/admin/teachers`): full CRUD, teacher account creation with a generated temp password.
 - **Classes & Subjects** (`/admin/classes`): class fee setup, an optional **category/stream** field (e.g. Biology, Computer Science, Pre-Medical, Pre-Engineering — free text with suggestions), subject-to-teacher assignment, and the pending-subject-request approval queue. A subject is always scoped to one class ("section"), so the same subject name in two different sections can be assigned to two different teachers.
 - **Timetable**: admin builder with day/time overlap checks; read-only per-teacher view; print-ready.
 - **Attendance** (`/admin/attendance`, `/teacher/attendance`): a **Students / Teachers** toggle (admin only) switches between marking student attendance (one screen per class, any date, defaulters view against a configurable threshold, print + PDF download) and marking **teacher/staff attendance** (mark present/absent/late per teacher for any date, with a per-teacher history view).
+- **Student Cards** (`/admin/student-cards`): every student has a printable ID card carrying a **Code 39 barcode**. The card number (`MKT000001`, `MKT000002`, …) is assigned by the database the moment a student row is created, so a new admission's card exists automatically — the Add Student dialog even offers to print it right away. Filter by class/status, print the whole filtered set as a cut-up sheet, or print one card at a time. Cards are fixed at 90mm × 55mm and always render light-on-white (a dark card neither prints nor scans).
+- **Barcode sign-in** (`/scan` for the attendance account, `/admin/scanner` for admins): the student scans their card at the desk and the screen shows their name, class, and **"Signed in at 9:14:03 AM"**. If the student has an **overdue fee**, a full-width red banner appears **above** the sign-in confirmation with the outstanding amount, which months are unpaid, and the guardian's phone number. Repeat scans on the same day report the original sign-in time instead of overwriting it, and a running list of recent sign-ins stays on screen. **No scanner hardware needed for testing** — the input box accepts a typed card number followed by Enter, which is exactly what a keyboard-wedge barcode scanner sends.
 - **Fees** (`/admin/fees`): two tabs —
   - **Fee Overview**: every enrolled student with this-month status, lifetime total paid, and lifetime total remaining, filterable by class/category/status; click a row for that student's full payment history and a receipt for any past month.
   - **Monthly Invoices**: the original per-month workflow — generate invoices from each student's fee (override or class default), mark paid, **send a real fee-reminder email** to the guardian on file via Resend (see setup step 6 above), automatic overdue flagging, printable receipts.
@@ -135,7 +145,11 @@ Then sign in with the admin account created above at `/login`.
 - **GPM and OPM are numerically identical** in this build: the system only tracks one cost (teacher salaries), so both gross and operating margin reduce to `(fees collected − salary expense) / fees collected`. If you later track other operating costs separately from salaries, GPM and OPM should be split apart.
 - **A class row represents one section.** "Math for 9th-A" and "Math for 9th-B" are two different `subjects` rows (different `class_id`) that can be assigned to two different teachers — this is how the same-subject-different-teacher requirement is satisfied structurally, without needing a separate student-to-subject enrollment table (every student in a class studies every subject assigned to that class).
 - **Course breakdown slot lengths are literal day counts** — weekly = 7 days, biweekly = 15 days, monthly = 30 days (not calendar months), so the last slot in a range is capped at the plan's end date even if shorter than the interval.
-- The first admin account must be created directly in the Supabase dashboard/SQL editor (documented above) since no admin exists yet to issue one through the app.
+- The first admin account must be created directly in the Supabase dashboard/SQL editor (documented above) since no admin exists yet to issue one through the app. The attendance-desk account is created the same way (setup step 7) — it's a single shared kiosk login, not one account per staff member.
+- **A card number is permanent.** It's assigned by a database trigger at admission (`MKT` + a 6-digit sequence) and a trigger refuses any later change, so a card that has already been printed and handed out can never silently stop matching its student.
+- **"Fee overdue" on the scanner means an unpaid invoice whose due date has passed** — or, when an invoice has no due date set, one for a month that has already ended. Unpaid admission/security fees and the current (not yet late) month are shown as a secondary "also pending" line rather than triggering the red banner.
+- **Barcode sign-in always records `present`.** The desk records arrival; late/absent classification stays a teacher's judgement on the Attendance page, and a scan never overwrites a mark a teacher already made that day.
+- **The scanner terminal's own clock decides the date**, but only within one day of the server's — a terminal with a badly wrong clock can't backdate the register. This matters because the server clock runs in UTC, which would otherwise roll the day over mid-evening in Pakistan.
 
 ## Known limitation
 

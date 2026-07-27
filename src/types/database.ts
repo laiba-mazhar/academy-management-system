@@ -4,7 +4,9 @@
 // required column at compile time instead of only at the Postgres roundtrip.
 type InsertOf<Row, Optional extends keyof Row> = Omit<Row, Optional> & Partial<Pick<Row, Optional>>
 
-export type UserRole = 'admin' | 'teacher'
+// 'attendance' is the front-desk kiosk account: it can record a barcode
+// sign-in and nothing else (see the scan_student_attendance RPC).
+export type UserRole = 'admin' | 'teacher' | 'attendance'
 export type EnrollmentStatus = 'enrolled' | 'inactive' | 'graduated' | 'left'
 export type TeacherStatus = 'active' | 'left'
 export type SubjectStatus = 'active' | 'pending_approval'
@@ -50,6 +52,9 @@ export interface Subject {
 export interface Student {
   id: string
   full_name: string
+  // Card number printed as a Code 39 barcode on the student's ID card.
+  // Assigned by a DB trigger at admission and never changed afterwards.
+  barcode: string
   class_id: string | null
   contact_phone: string | null
   guardian_name: string | null
@@ -217,6 +222,7 @@ export interface Database {
         Insert: InsertOf<
           Student,
           | 'id'
+          | 'barcode'
           | 'class_id'
           | 'contact_phone'
           | 'guardian_name'

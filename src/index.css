@@ -121,6 +121,21 @@
     position: static !important;
   }
 
+  /* Student ID cards are laid out at fixed physical sizes — keep a card whole
+     on one page and give the sheet a little breathing room between rows so
+     they can be cut apart cleanly. */
+  .card-sheet {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6mm;
+  }
+
+  .student-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #94a3b8 !important;
+  }
+
   .no-print {
     display: none !important;
   }

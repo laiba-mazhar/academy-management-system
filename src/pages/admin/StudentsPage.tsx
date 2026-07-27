@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select } from '@/components/ui/Input'
 import { StudentFullReport } from '@/components/StudentFullReport'
-import { StudentIdCard } from '@/components/StudentIdCard'
+import { StudentCard } from '@/components/StudentCard'
 import { printElement } from '@/lib/printElement'
 import { formatCurrency, isValidEmail, isValidPhone } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
@@ -57,9 +57,9 @@ export function StudentsPage() {
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null)
   const [reportCardFor, setReportCardFor] = useState<Student | null>(null)
+  const [newCardFor, setNewCardFor] = useState<Student | null>(null)
   const reportCardPrintRef = useRef<HTMLDivElement>(null)
-  const [idCardFor, setIdCardFor] = useState<Student | null>(null)
-  const idCardPrintRef = useRef<HTMLDivElement>(null)
+  const newCardPrintRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function load() {
@@ -193,12 +193,10 @@ export function StudentsPage() {
     }
     show(editing ? 'Student updated.' : 'Student added.')
     setShowForm(false)
-    // A brand-new enrollment gets its ID card opened immediately — the whole
-    // point of generating one per student is to have it ready right away for
-    // the gate-attendance QR, not buried behind another click later.
-    if (!editing && result.data) {
-      setIdCardFor(result.data as Student)
-    }
+    // A card number is assigned by the database the moment the student row is
+    // created, so a new admission's card exists immediately — show it straight
+    // away so it can be printed without a detour to the Student Cards tab.
+    if (!editing && result.data) setNewCardFor(result.data as Student)
     load()
   }
 
@@ -292,7 +290,10 @@ export function StudentsPage() {
                   onClick={() => setReportCardFor(s)}
                   className="cursor-pointer border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors"
                 >
-                  <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{s.full_name}</td>
+                  <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">
+                    {s.full_name}
+                    <div className="font-mono text-xs font-normal text-slate-400 dark:text-slate-500">{s.barcode}</div>
+                  </td>
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                     {s.class_id ? classById.get(s.class_id)?.name ?? '—' : '—'}
                     {s.class_id && classById.get(s.class_id)?.category && (
@@ -349,12 +350,6 @@ export function StudentsPage() {
                       className="mr-3 text-sm text-slate-600 dark:text-slate-300 hover:underline"
                     >
                       View Report
-                    </button>
-                    <button
-                      onClick={() => setIdCardFor(s)}
-                      className="mr-3 text-sm text-slate-600 dark:text-slate-300 hover:underline"
-                    >
-                      ID Card
                     </button>
                     <button onClick={() => openEdit(s)} className="mr-3 text-sm text-brand-600 hover:underline">
                       Edit
@@ -515,19 +510,25 @@ export function StudentsPage() {
         </Modal>
       )}
 
-      {idCardFor && (
-        <Modal title={`ID Card — ${idCardFor.full_name}`} onClose={() => setIdCardFor(null)}>
-          <div ref={idCardPrintRef} className="print-area">
-            <StudentIdCard
-              student={idCardFor}
-              classLabel={idCardFor.class_id ? classById.get(idCardFor.class_id)?.name ?? '—' : '—'}
-            />
-          </div>
-          <div className="no-print mt-6 flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setIdCardFor(null)}>
-              Close
-            </Button>
-            <Button onClick={() => printElement(idCardPrintRef.current)}>Print</Button>
+      {newCardFor && (
+        <Modal title="Student card created" onClose={() => setNewCardFor(null)}>
+          <div className="flex flex-col items-center gap-4">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              <strong>{newCardFor.full_name}</strong> was admitted and issued card number{' '}
+              <span className="font-mono font-semibold">{newCardFor.barcode}</span>.
+            </p>
+            <div ref={newCardPrintRef} className="print-area card-sheet">
+              <StudentCard
+                student={newCardFor}
+                cls={newCardFor.class_id ? classById.get(newCardFor.class_id) : undefined}
+              />
+            </div>
+            <div className="no-print flex justify-end gap-2 self-stretch">
+              <Button variant="secondary" onClick={() => setNewCardFor(null)}>
+                Later
+              </Button>
+              <Button onClick={() => printElement(newCardPrintRef.current)}>Print card</Button>
+            </div>
           </div>
         </Modal>
       )}
