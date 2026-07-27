@@ -7,6 +7,7 @@ import { Login } from '@/pages/auth/Login'
 import { ResetPassword } from '@/pages/auth/ResetPassword'
 import { AdminLayout } from '@/components/Layout/AdminLayout'
 import { TeacherLayout } from '@/components/Layout/TeacherLayout'
+import { ScannerLayout } from '@/components/Layout/ScannerLayout'
 import { AdminDashboard } from '@/pages/admin/AdminDashboard'
 import { TeacherDashboard } from '@/pages/teacher/TeacherDashboard'
 import { StudentsPage } from '@/pages/admin/StudentsPage'
@@ -25,6 +26,8 @@ import { FeeChallanPage } from '@/pages/admin/FeeChallanPage'
 import { SalariesPage } from '@/pages/admin/SalariesPage'
 import { CourseBreakdownOverviewPage } from '@/pages/admin/CourseBreakdownOverviewPage'
 import { TeacherCourseBreakdownPage } from '@/pages/teacher/TeacherCourseBreakdownPage'
+import { StudentCardsPage } from '@/pages/admin/StudentCardsPage'
+import { ScannerPage } from '@/pages/attendance/ScannerPage'
 
 export default function App() {
   return (
@@ -39,10 +42,12 @@ export default function App() {
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<AdminDashboard />} />
                 <Route path="students" element={<StudentsPage />} />
+                <Route path="student-cards" element={<StudentCardsPage />} />
                 <Route path="teachers" element={<TeachersPage />} />
                 <Route path="classes" element={<ClassesSubjectsPage />} />
                 <Route path="timetable" element={<AdminTimetablePage />} />
                 <Route path="attendance" element={<AttendancePage />} />
+                <Route path="scanner" element={<ScannerPage />} />
                 <Route path="fees" element={<FeesPage />} />
                 <Route path="fee-challans" element={<FeeChallanPage />} />
                 <Route path="salaries" element={<SalariesPage />} />
@@ -61,6 +66,12 @@ export default function App() {
                 <Route path="exams" element={<ExamsPage />} />
                 <Route path="exams/:examId" element={<ExamDetailPage basePath="/teacher/exams" />} />
                 <Route path="course-breakdown" element={<TeacherCourseBreakdownPage />} />
+              </Route>
+            </Route>
+
+            <Route element={<ProtectedRoute allowedRole="attendance" />}>
+              <Route path="/scan" element={<ScannerLayout />}>
+                <Route index element={<ScannerPage />} />
               </Route>
             </Route>
 
