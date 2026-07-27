@@ -38,7 +38,14 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    ```
    The template id is SendPK's, not Meta's template name. To move the number to your own app later, SendPK must release it first, and you'll need its two-step verification PIN.
 
-   Five providers are supported, selected with the `MESSAGE_PROVIDER` secret — **httpSMS** (cheapest, sends via a carrier SMS bundle on your own Android phone), **SMS** via SendPK, **Twilio** for testing (no Meta account, no template approval), and **Meta** for production WhatsApp.
+   **WhatsApp via Whapi.Cloud** (`MESSAGE_PROVIDER=whapi`) pairs an ordinary WhatsApp account by QR code instead of going through Meta, so there is no Meta app, no business verification, no template approval, and messages are free-form:
+   ```
+   supabase secrets set MESSAGE_PROVIDER=whapi
+   supabase secrets set WHAPI_TOKEN=your-token
+   ```
+   `WHAPI_ENDPOINT` overrides the send URL if their API changes. **This is an unofficial route**: automated bulk sending breaches WhatsApp's terms, and enforcement targets the number itself — a ban would take the institute's ordinary WhatsApp with it. If you use it, keep volumes modest and chain an official fallback (`MESSAGE_PROVIDER=whapi,meta`) so a dropped session or a ban still leaves parents notified.
+
+   Six providers are supported, selected with the `MESSAGE_PROVIDER` secret — **httpSMS** (cheapest, sends via a carrier SMS bundle on your own Android phone), **SMS** via SendPK, **Twilio** for testing (no Meta account, no template approval), and **Meta** for production WhatsApp.
 
    **httpSMS via a carrier bundle** (`MESSAGE_PROVIDER=httpsms`) is by far the cheapest route. A Jazz or Telenor monthly SMS bundle (roughly Rs 40–99 for 10,000–12,000 SMS) works out near **PKR 0.004–0.008 per message**, against ~PKR 1+ from a commercial gateway — so a whole month of alerts costs less than a hundred rupees. Setup:
    1. Put a SIM with a monthly SMS bundle in a spare Android phone; keep it charged and on WiFi.
