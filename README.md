@@ -92,7 +92,9 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
       supabase secrets set WHATSAPP_ACCESS_TOKEN=your-access-token
       supabase secrets set WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
       ```
-      Optional overrides: `WHATSAPP_TEMPLATE_NAME` (default `result_notification`), `WHATSAPP_TEMPLATE_LANG` (default `en`), `WHATSAPP_API_VERSION` (default `v23.0`).
+      Optional overrides: `WHATSAPP_TEMPLATE_NAME`, `WHATSAPP_TEMPLATE_LANG`, `WHATSAPP_TEMPLATE_PARAM_COUNT`, `WHATSAPP_API_VERSION` (default `v23.0`).
+
+      **Smoke-test defaults**: the function currently defaults to Meta's sample template `jaspers_market_order_confirmation_v1` / `en_US` / 3 variables, so a send works before `result_notification` is approved — the wording will be nonsense, it only proves the wiring. Once your own template is approved, set `WHATSAPP_TEMPLATE_NAME=result_notification`, `WHATSAPP_TEMPLATE_LANG=en`, `WHATSAPP_TEMPLATE_PARAM_COUNT=7` (or revert the defaults in `index.ts`).
 
    **Token expiry**: the quick-start token shown in the dashboard **expires after 24 hours** — fine for testing, but for production generate a permanent token via a System User in Meta Business Settings and re-set the secret. A `401`/code `190` from Meta means the token expired, not that the function is broken.
 

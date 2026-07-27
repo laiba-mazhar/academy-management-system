@@ -76,10 +76,13 @@
 //       supabase secrets set MESSAGE_PROVIDER=meta
 //       supabase secrets set WHATSAPP_ACCESS_TOKEN=your-token
 //       supabase secrets set WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
-//     Optional: WHATSAPP_TEMPLATE_NAME (default "result_notification"),
-//     WHATSAPP_TEMPLATE_LANG (default "en"), WHATSAPP_API_VERSION (default
-//     "v23.0"). Meta's quick-start token expires after 24 hours — a 401/190
-//     means the token expired, not that this function is broken.
+//     NOTE: the template defaults below currently point at Meta's sample
+//     "jaspers_market_order_confirmation_v1" for smoke testing, NOT at
+//     result_notification — see the comment above TEMPLATE_NAME.
+//     Optional: WHATSAPP_TEMPLATE_NAME, WHATSAPP_TEMPLATE_LANG,
+//     WHATSAPP_TEMPLATE_PARAM_COUNT, WHATSAPP_API_VERSION (default "v23.0").
+//     Meta's quick-start token expires after 24 hours — a 401/190 means the
+//     token expired, not that this function is broken.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts'
@@ -118,14 +121,22 @@ const SENDPK_SMS_SENDER = Deno.env.get('SENDPK_SMS_SENDER') ?? 'Maktab'
 
 const WHATSAPP_ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN')
 const WHATSAPP_PHONE_NUMBER_ID = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID')
-const TEMPLATE_NAME = Deno.env.get('WHATSAPP_TEMPLATE_NAME') ?? 'result_notification'
-const TEMPLATE_LANG = Deno.env.get('WHATSAPP_TEMPLATE_LANG') ?? 'en'
+// SMOKE-TEST DEFAULTS — these point at "jaspers_market_order_confirmation_v1",
+// one of Meta's sample templates that ships with a fresh WhatsApp test number.
+// It takes three body variables, so the send goes through before the real
+// result_notification template exists and proves the token, phone number ID and
+// this function are wired up. The message reads as nonsense (guardian, student
+// and marks land in Jasper's "name / order number / delivery date" slots) — that
+// is expected. Once result_notification is approved, revert these three to
+// 'result_notification' / 'en' / '7', or override them with the matching
+// WHATSAPP_TEMPLATE_* secrets.
+const TEMPLATE_NAME = Deno.env.get('WHATSAPP_TEMPLATE_NAME') ?? 'jaspers_market_order_confirmation_v1'
+const TEMPLATE_LANG = Deno.env.get('WHATSAPP_TEMPLATE_LANG') ?? 'en_US'
 const API_VERSION = Deno.env.get('WHATSAPP_API_VERSION') ?? 'v23.0'
 // Meta rejects a send whose parameter count differs from the template's
-// placeholder count (error #132000). The real template takes all seven values,
-// but this allows a smoke test against a sample template with fewer — set it to
-// that template's placeholder count and the extra values are dropped.
-const TEMPLATE_PARAM_COUNT = Number(Deno.env.get('WHATSAPP_TEMPLATE_PARAM_COUNT') ?? '7')
+// placeholder count (error #132000). The real template takes all seven values;
+// the sample above takes three, and the extra values are dropped.
+const TEMPLATE_PARAM_COUNT = Number(Deno.env.get('WHATSAPP_TEMPLATE_PARAM_COUNT') ?? '3')
 
 // Mirrors PASS_THRESHOLD in the admin/teacher dashboards — if your institute
 // changes the passing mark, update it there and here together.
