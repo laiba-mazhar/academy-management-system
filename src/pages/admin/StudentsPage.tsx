@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select } from '@/components/ui/Input'
 import { StudentFullReport } from '@/components/StudentFullReport'
+import { StudentIdCard } from '@/components/StudentIdCard'
 import { printElement } from '@/lib/printElement'
 import { formatCurrency, isValidEmail, isValidPhone } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
@@ -57,6 +58,8 @@ export function StudentsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null)
   const [reportCardFor, setReportCardFor] = useState<Student | null>(null)
   const reportCardPrintRef = useRef<HTMLDivElement>(null)
+  const [idCardFor, setIdCardFor] = useState<Student | null>(null)
+  const idCardPrintRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function load() {
@@ -181,7 +184,7 @@ export function StudentsPage() {
 
     const result = editing
       ? await supabase.from('students').update(payload).eq('id', editing.id)
-      : await supabase.from('students').insert(payload)
+      : await supabase.from('students').insert(payload).select().single()
 
     setSaving(false)
     if (result.error) {
@@ -190,6 +193,12 @@ export function StudentsPage() {
     }
     show(editing ? 'Student updated.' : 'Student added.')
     setShowForm(false)
+    // A brand-new enrollment gets its ID card opened immediately — the whole
+    // point of generating one per student is to have it ready right away for
+    // the gate-attendance QR, not buried behind another click later.
+    if (!editing && result.data) {
+      setIdCardFor(result.data as Student)
+    }
     load()
   }
 
@@ -340,6 +349,12 @@ export function StudentsPage() {
                       className="mr-3 text-sm text-slate-600 dark:text-slate-300 hover:underline"
                     >
                       View Report
+                    </button>
+                    <button
+                      onClick={() => setIdCardFor(s)}
+                      className="mr-3 text-sm text-slate-600 dark:text-slate-300 hover:underline"
+                    >
+                      ID Card
                     </button>
                     <button onClick={() => openEdit(s)} className="mr-3 text-sm text-brand-600 hover:underline">
                       Edit
@@ -496,6 +511,23 @@ export function StudentsPage() {
               Close
             </Button>
             <Button onClick={() => printElement(reportCardPrintRef.current)}>Print</Button>
+          </div>
+        </Modal>
+      )}
+
+      {idCardFor && (
+        <Modal title={`ID Card — ${idCardFor.full_name}`} onClose={() => setIdCardFor(null)}>
+          <div ref={idCardPrintRef} className="print-area">
+            <StudentIdCard
+              student={idCardFor}
+              classLabel={idCardFor.class_id ? classById.get(idCardFor.class_id)?.name ?? '—' : '—'}
+            />
+          </div>
+          <div className="no-print mt-6 flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setIdCardFor(null)}>
+              Close
+            </Button>
+            <Button onClick={() => printElement(idCardPrintRef.current)}>Print</Button>
           </div>
         </Modal>
       )}
