@@ -6,6 +6,37 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "datahelyx",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "C:/Users/laiba/Documents/datahelyx-website", "run", "dev", "--", "--port", "3210"],
+      "port": 3210
+    },
+    {
+      "name": "al-muttaqeen",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "C:/Users/laiba/Documents/al-muttaqeen"],
+      "port": 5173,
+      "autoPort": true
+    },
+    {
+      "name": "careflow",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set PORT=3001&& npm run dev --prefix C:/Users/laiba/Documents/CAREFLOW/CareFlow/CareFlow"],
+      "port": 5173
+    },
+    {
+      "name": "lead",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "C:/Users/laiba/Documents/LEAD", "run", "dev"],
+      "port": 5180
+    },
+    {
+      "name": "tulsa-form",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["C:/Users/laiba/Desktop/HELPER/webapp.py"],
+      "port": 5057
     }
   ]
 }
