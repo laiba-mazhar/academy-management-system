@@ -128,6 +128,7 @@ export interface ExamResult {
   entered_by: string | null
   whatsapp_sent_at: string | null
   created_at: string
+  whatsapp_sent_at: string | null
 }
 
 export interface Timetable {

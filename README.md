@@ -20,13 +20,78 @@ fee tracking, teacher/staff attendance, and a course-breakdown pacing planner on
    supabase functions deploy create-teacher
    supabase functions deploy delete-teacher
    supabase functions deploy send-fee-reminder
+   supabase functions deploy send-result-whatsapp
    ```
-   (Requires the Supabase CLI, logged in and linked to your project — `npx supabase login` then `npx supabase link`. All three read `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` from the Supabase-managed function environment automatically, and all send CORS headers so they work when called from the browser.) Everything else in the app works without these — only "Add Teacher", "Delete Teacher", and "Send Reminder" (Fees page) depend on them.
+   (Requires the Supabase CLI, logged in and linked to your project — `npx supabase login` then `npx supabase link`. All four read `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` from the Supabase-managed function environment automatically, and all send CORS headers so they work when called from the browser.) Everything else in the app works without these — only "Add Teacher", "Delete Teacher", "Send Reminder" (Fees page), and "Send WhatsApp" (exam Marks Entry) depend on them.
 6. For real fee-reminder emails, sign up at https://resend.com (free tier: 3,000 emails/month) and create an API key, then set it as a function secret:
    ```
    supabase secrets set RESEND_API_KEY=your-resend-api-key
    ```
    **Sandbox limitation**: until you verify a domain in Resend, emails can only be delivered to the email address you signed up to Resend with — sending to a student's actual guardian email will be rejected by Resend until you verify a domain (Resend dashboard → Domains → Add Domain, then add the DNS records at your registrar; free, takes a few minutes to propagate). Once verified, set `REMINDER_FROM_ADDRESS` as a secret too (e.g. `supabase secrets set REMINDER_FROM_ADDRESS="Maktab - The Educational Institute <noreply@yourdomain.com>"`) — otherwise it defaults to Resend's shared sandbox sender.
+7. For **exam-result messages** to guardians. `MESSAGE_PROVIDER` also accepts a **comma-separated chain** for automatic failover — each message tries the providers left to right and stops at the first that accepts it. The recommended production setting is `MESSAGE_PROVIDER=httpsms,sms`: the phone-based route handles the traffic at a fraction of a paisa per message, and the paid gateway silently covers the gaps when that phone is offline, so an unplugged handset costs a few rupees rather than losing notifications. A provider whose secrets are missing is skipped, not treated as a failure; if a message exhausts the whole chain, the error reports what each route said.
+
+   **WhatsApp via SendPK** (`MESSAGE_PROVIDER=sendpk-wa`) is the route to use when the number is registered under SendPK rather than your own Cloud API app. Meta only lets one provider hold a number at a time, so the direct `meta` route will refuse a number SendPK already manages — check WhatsApp Manager → Phone numbers to see which applies. Approve a template inside SendPK's own panel (seven variables, same order as below), then:
+   ```
+   supabase secrets set MESSAGE_PROVIDER=sendpk-wa
+   supabase secrets set SENDPK_WA_API_KEY=your-api-key
+   supabase secrets set SENDPK_WA_TEMPLATE_ID=your-approved-template-id
+   ```
+   The template id is SendPK's, not Meta's template name. To move the number to your own app later, SendPK must release it first, and you'll need its two-step verification PIN.
+
+   Five providers are supported, selected with the `MESSAGE_PROVIDER` secret — **httpSMS** (cheapest, sends via a carrier SMS bundle on your own Android phone), **SMS** via SendPK, **Twilio** for testing (no Meta account, no template approval), and **Meta** for production WhatsApp.
+
+   **httpSMS via a carrier bundle** (`MESSAGE_PROVIDER=httpsms`) is by far the cheapest route. A Jazz or Telenor monthly SMS bundle (roughly Rs 40–99 for 10,000–12,000 SMS) works out near **PKR 0.004–0.008 per message**, against ~PKR 1+ from a commercial gateway — so a whole month of alerts costs less than a hundred rupees. Setup:
+   1. Put a SIM with a monthly SMS bundle in a spare Android phone; keep it charged and on WiFi.
+   2. Create a free account at [httpsms.com](https://httpsms.com), copy the API key from Settings, install their Android app and sign in with that key.
+   3. Set the secrets:
+      ```
+      supabase secrets set MESSAGE_PROVIDER=httpsms
+      supabase secrets set HTTPSMS_API_KEY=your-api-key
+      supabase secrets set HTTPSMS_FROM=+92XXXXXXXXXX
+      ```
+      `HTTPSMS_FROM` is the phone's own number. `HTTPSMS_ENDPOINT` can override the send URL if their API shape changes.
+
+   **Know the trade-offs before relying on it**: consumer bundles are sold for personal use and PTA rules expect commercial traffic on registered A2P routes; carriers cap daily SMS (often 300–500) and may block a SIM that looks like a bulk sender; throughput is roughly one SMS every few seconds, so a large bulk send is slow and can exceed the edge function's execution limit; the sender always shows as the SIM's number, never a brand; and there's no redundancy — one phone, one SIM. It suits a steady trickle of daily alerts far better than blasting a whole school's results at once. For a fully compliant alternative at similar-ish cost, ask Jazz/Telenor/Zong for a corporate A2P quote.
+
+   **SMS via SendPK** (`MESSAGE_PROVIDER=sms`) is the only option here that doesn't depend on a Meta WhatsApp Business Account, so it keeps working even when a Meta business portfolio is restricted — and it costs roughly a third of WhatsApp per message in Pakistan.
+   ```
+   supabase secrets set MESSAGE_PROVIDER=sms
+   supabase secrets set SENDPK_SMS_USERNAME=your-username
+   supabase secrets set SENDPK_SMS_PASSWORD=your-password
+   supabase secrets set SENDPK_SMS_SENDER=Maktab
+   ```
+   The SMS copy is deliberately shorter than the WhatsApp wording so each message stays inside one 160-character billable part — edit `composeSms` in the edge function to change it, and keep an eye on the length. Urdu text is Unicode and only fits 70 characters per part. A branded sender ID (e.g. `Maktab` instead of a number) requires PTA registration with the institute's NTN and CNIC, and carries an annual fee.
+
+   **Testing via Twilio's WhatsApp sandbox** — fastest way to see real messages, and it works without a Meta business account:
+   1. Sign up at [twilio.com](https://www.twilio.com) (trial credit included). If phone verification fails from Pakistan, use **"Send code via voice call"**.
+   2. **Messaging → Try it out → Send a WhatsApp message** shows the sandbox number and a join code. From each test phone, WhatsApp that join code to the sandbox number. Sessions expire after ~3 days; re-send the code to renew.
+   3. Set the secrets (Auth Token is a credential — never in the repo):
+      ```
+      supabase secrets set MESSAGE_PROVIDER=twilio
+      supabase secrets set TWILIO_ACCOUNT_SID=ACxxxxxxxx
+      supabase secrets set TWILIO_AUTH_TOKEN=your-auth-token
+      ```
+      Optional: `TWILIO_WHATSAPP_FROM` (defaults to the shared sandbox number `whatsapp:+14155238886`).
+
+   The sandbox sends free-form text, so no template is needed and the wording can change freely. It is for testing only — the sender is a shared US number, and international rates make it unsuitable for production volume in Pakistan.
+
+   **Production via Meta's [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api)** (set `MESSAGE_PROVIDER=meta`):
+   1. At [developers.facebook.com](https://developers.facebook.com) create an app of type **Business** and add the **WhatsApp** product. This gives you a free **test sender number** plus a **Phone number ID** — no SIM required, and no Business verification for testing.
+   2. Under *API Setup*, add the recipient numbers you want to test with (**the test number only delivers to numbers on that list — up to 5**).
+   3. In **WhatsApp Manager → Message templates**, create a template named `result_notification`, category **Utility** (a result notice is transactional, not marketing — cheaper and far more likely to be approved), language **English**, with **seven body variables in this exact order**: `{{1}}` guardian name, `{{2}}` student name, `{{3}}` marks obtained, `{{4}}` total marks, `{{5}}` subject, `{{6}}` exam name, `{{7}}` Pass/Fail. Body used by this app:
+      > Dear {{1}}, your child {{2}} scored {{3}} out of {{4}} marks in {{5}} ({{6}}). Result: {{7}}. For any questions, please contact the school office. Thank you, Maktab - The Educational Institute.
+   4. Set the secrets (the token must never live in the repo or the browser):
+      ```
+      supabase secrets set WHATSAPP_ACCESS_TOKEN=your-access-token
+      supabase secrets set WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
+      ```
+      Optional overrides: `WHATSAPP_TEMPLATE_NAME` (default `result_notification`), `WHATSAPP_TEMPLATE_LANG` (default `en`), `WHATSAPP_API_VERSION` (default `v23.0`).
+
+   **Token expiry**: the quick-start token shown in the dashboard **expires after 24 hours** — fine for testing, but for production generate a permanent token via a System User in Meta Business Settings and re-set the secret. A `401`/code `190` from Meta means the token expired, not that the function is broken.
+
+   Guardian phone numbers are normalized to Pakistan's `92XXXXXXXXXX` format automatically, so `0300-1234567`, `+92 300 1234567`, etc. all work. Pass/Fail (`{{7}}`) is derived from the same 40% cutoff the dashboards use — `PASS_THRESHOLD` is defined in `send-result-whatsapp/index.ts`, `AdminDashboard.tsx` and `TeacherDashboard.tsx`, so change all three together. If you edit the template's wording later, keep the seven variables in the same order or the messages will come out scrambled.
+
+   **Going live** (moving off the test number): generate a permanent System User token, add the institute's real number in WhatsApp Manager, complete Meta Business verification, add a billing method, and re-create the template under the production WhatsApp Business Account. Re-set `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` to the production values.
 
 ## Running the app
 
