@@ -121,6 +121,11 @@ const WHATSAPP_PHONE_NUMBER_ID = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID')
 const TEMPLATE_NAME = Deno.env.get('WHATSAPP_TEMPLATE_NAME') ?? 'result_notification'
 const TEMPLATE_LANG = Deno.env.get('WHATSAPP_TEMPLATE_LANG') ?? 'en'
 const API_VERSION = Deno.env.get('WHATSAPP_API_VERSION') ?? 'v23.0'
+// Meta rejects a send whose parameter count differs from the template's
+// placeholder count (error #132000). The real template takes all seven values,
+// but this allows a smoke test against a sample template with fewer — set it to
+// that template's placeholder count and the extra values are dropped.
+const TEMPLATE_PARAM_COUNT = Number(Deno.env.get('WHATSAPP_TEMPLATE_PARAM_COUNT') ?? '7')
 
 // Mirrors PASS_THRESHOLD in the admin/teacher dashboards — if your institute
 // changes the passing mark, update it there and here together.
@@ -308,7 +313,14 @@ async function sendViaMeta(mobile: string, variables: string[]): Promise<SendRes
         template: {
           name: TEMPLATE_NAME,
           language: { code: TEMPLATE_LANG },
-          components: [{ type: 'body', parameters: variables.map((text) => ({ type: 'text', text })) }],
+          components: [
+            {
+              type: 'body',
+              parameters: variables
+                .slice(0, TEMPLATE_PARAM_COUNT)
+                .map((text) => ({ type: 'text', text })),
+            },
+          ],
         },
       }),
     }
