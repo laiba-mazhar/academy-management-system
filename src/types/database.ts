@@ -126,7 +126,6 @@ export interface ExamResult {
   student_id: string
   marks_obtained: number
   entered_by: string | null
-  whatsapp_sent_at: string | null
   created_at: string
   whatsapp_sent_at: string | null
 }
