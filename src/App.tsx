@@ -21,6 +21,7 @@ import { AttendancePage } from '@/pages/shared/AttendancePage'
 import { QuestionBankPage } from '@/pages/shared/QuestionBankPage'
 import { ExamsPage } from '@/pages/shared/ExamsPage'
 import { ExamDetailPage } from '@/pages/shared/ExamDetailPage'
+import { ScanStationPage } from '@/pages/attendance/ScanStationPage'
 import { FeeChallanPage } from '@/pages/admin/FeeChallanPage'
 import { SalariesPage } from '@/pages/admin/SalariesPage'
 import { CourseBreakdownOverviewPage } from '@/pages/admin/CourseBreakdownOverviewPage'
@@ -62,6 +63,13 @@ export default function App() {
                 <Route path="exams/:examId" element={<ExamDetailPage basePath="/teacher/exams" />} />
                 <Route path="course-breakdown" element={<TeacherCourseBreakdownPage />} />
               </Route>
+            </Route>
+
+            {/* The scan station is its own full-screen route rather than a
+                nested layout: the machine at the gate shows only this, so the
+                admin/teacher chrome would just be clutter and a way out. */}
+            <Route element={<ProtectedRoute allowedRole="attendance" />}>
+              <Route path="/scan" element={<ScanStationPage />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/login" replace />} />

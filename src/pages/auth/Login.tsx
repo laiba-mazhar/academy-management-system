@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { supabase, setRememberMe } from '@/lib/supabase'
+import { roleHome } from '@/lib/roles'
 import { useAuth } from '@/context/AuthContext'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Modal } from '@/components/ui/Modal'
@@ -72,7 +73,7 @@ export function Login() {
 
   if (!loading && session && profile) {
     if (profile.must_reset_password) return <Navigate to="/reset-password" replace />
-    return <Navigate to={profile.role === 'admin' ? '/admin' : '/teacher'} replace />
+    return <Navigate to={roleHome(profile.role)} replace />
   }
 
   async function handleSubmit(e: FormEvent) {

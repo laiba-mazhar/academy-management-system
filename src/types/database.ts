@@ -4,7 +4,7 @@
 // required column at compile time instead of only at the Postgres roundtrip.
 type InsertOf<Row, Optional extends keyof Row> = Omit<Row, Optional> & Partial<Pick<Row, Optional>>
 
-export type UserRole = 'admin' | 'teacher'
+export type UserRole = 'admin' | 'teacher' | 'attendance'
 export type EnrollmentStatus = 'enrolled' | 'inactive' | 'graduated' | 'left'
 export type TeacherStatus = 'active' | 'left'
 export type SubjectStatus = 'active' | 'pending_approval'
@@ -19,6 +19,16 @@ export interface Profile {
   email: string
   phone: string | null
   must_reset_password: boolean
+  created_at: string
+}
+
+export interface StudentScan {
+  id: string
+  student_id: string
+  scan_date: string
+  check_in_at: string | null
+  check_out_at: string | null
+  recorded_by: string | null
   created_at: string
 }
 
@@ -246,6 +256,12 @@ export interface Database {
         Row: Attendance
         Insert: InsertOf<Attendance, 'id' | 'marked_by' | 'created_at'>
         Update: Partial<Attendance>
+        Relationships: []
+      }
+      student_scans: {
+        Row: StudentScan
+        Insert: InsertOf<StudentScan, 'id' | 'check_in_at' | 'check_out_at' | 'recorded_by' | 'created_at'>
+        Update: Partial<StudentScan>
         Relationships: []
       }
       attendance_settings: {

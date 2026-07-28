@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select } from '@/components/ui/Input'
 import { StudentFullReport } from '@/components/StudentFullReport'
+import { StudentIdCard } from '@/components/StudentIdCard'
 import { printElement } from '@/lib/printElement'
 import { formatCurrency, isValidEmail, isValidPhone } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
@@ -56,7 +57,9 @@ export function StudentsPage() {
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null)
   const [reportCardFor, setReportCardFor] = useState<Student | null>(null)
+  const [idCardFor, setIdCardFor] = useState<Student | null>(null)
   const reportCardPrintRef = useRef<HTMLDivElement>(null)
+  const idCardPrintRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function load() {
@@ -341,6 +344,12 @@ export function StudentsPage() {
                     >
                       View Report
                     </button>
+                    <button
+                      onClick={() => setIdCardFor(s)}
+                      className="mr-3 text-sm text-slate-600 dark:text-slate-300 hover:underline"
+                    >
+                      ID Card
+                    </button>
                     <button onClick={() => openEdit(s)} className="mr-3 text-sm text-brand-600 hover:underline">
                       Edit
                     </button>
@@ -482,6 +491,23 @@ export function StudentsPage() {
                 {saving ? 'Saving...' : 'Save'}
               </Button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {idCardFor && (
+        <Modal title={`ID Card — ${idCardFor.full_name}`} onClose={() => setIdCardFor(null)}>
+          <div ref={idCardPrintRef}>
+            <StudentIdCard student={idCardFor} klass={idCardFor.class_id ? classById.get(idCardFor.class_id) : null} />
+          </div>
+          <p className="no-print mt-4 text-center text-xs text-slate-500 dark:text-slate-400">
+            The QR code encodes this student's id — scan it at the gate station to check them in and out.
+          </p>
+          <div className="no-print mt-4 flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setIdCardFor(null)}>
+              Close
+            </Button>
+            <Button onClick={() => printElement(idCardPrintRef.current)}>Print Card</Button>
           </div>
         </Modal>
       )}

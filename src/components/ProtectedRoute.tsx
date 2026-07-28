@@ -1,6 +1,7 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import type { UserRole } from '@/types/database'
+import { roleHome } from '@/lib/roles'
 
 export function ProtectedRoute({ allowedRole }: { allowedRole: UserRole }) {
   const { session, profile, loading } = useAuth()
@@ -20,7 +21,7 @@ export function ProtectedRoute({ allowedRole }: { allowedRole: UserRole }) {
   }
 
   if (profile.role !== allowedRole) {
-    return <Navigate to={profile.role === 'admin' ? '/admin' : '/teacher'} replace />
+    return <Navigate to={roleHome(profile.role)} replace />
   }
 
   return <Outlet />
