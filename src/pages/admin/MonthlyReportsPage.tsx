@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Field, Select } from '@/components/ui/Input'
-import { currentMonthValue, formatDate, formatMonth, monthValueToDate, shiftMonthValue } from '@/lib/utils'
+import { currentMonthValue, formatDateTime, formatMonth, monthValueToDate, shiftMonthValue } from '@/lib/utils'
 import { edgeFunctionError } from '@/lib/errors'
 import { buildMonthlyReportPdfBase64 } from '@/lib/pdf'
 import type { Attendance, Class, Exam, ExamResult, MonthlyReport, Student, Subject } from '@/types/database'
@@ -231,7 +231,7 @@ export function MonthlyReportsPage() {
                     </td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{examCount}</td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                      {report?.sent_at ? formatDate(report.sent_at) : '—'}
+                      {report?.sent_at ? formatDateTime(report.sent_at) : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {s.guardian_email ? (
