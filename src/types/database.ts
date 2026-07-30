@@ -156,6 +156,14 @@ export interface Salary {
   created_at: string
 }
 
+export interface MonthlyReport {
+  id: string
+  student_id: string
+  month: string
+  sent_at: string | null
+  created_at: string
+}
+
 export interface TeacherAttendance {
   id: string
   teacher_id: string
@@ -294,6 +302,12 @@ export interface Database {
         Row: Salary
         Insert: InsertOf<Salary, 'id' | 'status' | 'paid_date' | 'created_at'>
         Update: Partial<Salary>
+        Relationships: []
+      }
+      monthly_reports: {
+        Row: MonthlyReport
+        Insert: InsertOf<MonthlyReport, 'id' | 'sent_at' | 'created_at'>
+        Update: Partial<MonthlyReport>
         Relationships: []
       }
       teacher_attendance: {

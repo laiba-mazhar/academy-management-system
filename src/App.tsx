@@ -28,6 +28,7 @@ import { CourseBreakdownOverviewPage } from '@/pages/admin/CourseBreakdownOvervi
 import { TeacherCourseBreakdownPage } from '@/pages/teacher/TeacherCourseBreakdownPage'
 import { StudentCardsPage } from '@/pages/admin/StudentCardsPage'
 import { ScannerPage } from '@/pages/attendance/ScannerPage'
+import { MonthlyReportsPage } from '@/pages/admin/MonthlyReportsPage'
 
 export default function App() {
   return (
@@ -51,6 +52,7 @@ export default function App() {
                 <Route path="fees" element={<FeesPage />} />
                 <Route path="fee-challans" element={<FeeChallanPage />} />
                 <Route path="salaries" element={<SalariesPage />} />
+                <Route path="monthly-reports" element={<MonthlyReportsPage />} />
                 <Route path="course-breakdown" element={<CourseBreakdownOverviewPage />} />
               </Route>
             </Route>

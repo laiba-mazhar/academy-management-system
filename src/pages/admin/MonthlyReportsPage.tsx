@@ -1,0 +1,203 @@
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useToast } from '@/context/ToastContext'
+import { Button } from '@/components/ui/Button'
+import { Field, Select } from '@/components/ui/Input'
+import { currentMonthValue, formatDate, formatMonth, monthValueToDate, shiftMonthValue } from '@/lib/utils'
+import { edgeFunctionError } from '@/lib/errors'
+import type { Attendance, Class, Exam, MonthlyReport, Student } from '@/types/database'
+
+export function MonthlyReportsPage() {
+  const { show } = useToast()
+  const [students, setStudents] = useState<Student[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [attendance, setAttendance] = useState<Attendance[]>([])
+  const [exams, setExams] = useState<Exam[]>([])
+  const [reports, setReports] = useState<MonthlyReport[]>([])
+  const [loading, setLoading] = useState(true)
+  const [monthValue, setMonthValue] = useState(currentMonthValue())
+  const [classFilter, setClassFilter] = useState('all')
+  const [sendingId, setSendingId] = useState<string | null>(null)
+
+  const monthStart = monthValueToDate(monthValue)
+  const monthEnd = monthValueToDate(shiftMonthValue(monthValue, 1))
+
+  async function load() {
+    setLoading(true)
+    const [studentsRes, classesRes, attendanceRes, examsRes, reportsRes] = await Promise.all([
+      supabase.from('students').select('*').eq('enrollment_status', 'enrolled').order('full_name'),
+      supabase.from('classes').select('*').order('name'),
+      supabase.from('attendance').select('*').gte('date', monthStart).lt('date', monthEnd),
+      supabase.from('exams').select('*').gte('exam_date', monthStart).lt('exam_date', monthEnd),
+      supabase.from('monthly_reports').select('*').eq('month', monthStart),
+    ])
+    if (studentsRes.error) show(studentsRes.error.message, 'error')
+    else setStudents(studentsRes.data as Student[])
+    if (classesRes.data) setClasses(classesRes.data as Class[])
+    if (attendanceRes.data) setAttendance(attendanceRes.data as Attendance[])
+    if (examsRes.data) setExams(examsRes.data as Exam[])
+    if (reportsRes.data) setReports(reportsRes.data as MonthlyReport[])
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthValue])
+
+  const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
+
+  const attendanceByStudent = useMemo(() => {
+    const map = new Map<string, { present: number; total: number }>()
+    for (const a of attendance) {
+      const entry = map.get(a.student_id) ?? { present: 0, total: 0 }
+      entry.total++
+      if (a.status === 'present' || a.status === 'late') entry.present++
+      map.set(a.student_id, entry)
+    }
+    return map
+  }, [attendance])
+
+  const examCountByClass = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const e of exams) map.set(e.class_id, (map.get(e.class_id) ?? 0) + 1)
+    return map
+  }, [exams])
+
+  const reportByStudent = useMemo(() => new Map(reports.map((r) => [r.student_id, r])), [reports])
+
+  const filtered = classFilter === 'all' ? students : students.filter((s) => s.class_id === classFilter)
+
+  async function sendTestReport(student: Student) {
+    if (!student.guardian_email) {
+      show('No guardian email on file for this student.', 'error')
+      return
+    }
+    setSendingId(student.id)
+    const { data, error } = await supabase.functions.invoke('send-monthly-report', {
+      body: { studentId: student.id, month: monthStart },
+    })
+    setSendingId(null)
+    if (error) {
+      show(await edgeFunctionError(error, 'Failed to send report.'), 'error')
+      return
+    }
+    const result = data as { error?: string; success?: boolean; hadExams?: boolean }
+    if (result?.error) {
+      show(result.error, 'error')
+      return
+    }
+    show(`Test report emailed to ${student.guardian_email}${result.hadExams ? '' : ' (no exams this month)'}.`)
+    load()
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Monthly Reports</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Send a combined attendance + exam report email to a guardian for one month. Manual test-send only for now —
+          nothing goes out automatically yet.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2">
+        <Field label="Month">
+          <div className="flex gap-1">
+            <Button variant="secondary" onClick={() => setMonthValue(shiftMonthValue(monthValue, -1))} aria-label="Previous month">
+              ‹
+            </Button>
+            <input
+              type="month"
+              value={monthValue}
+              onChange={(e) => setMonthValue(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
+            />
+            <Button variant="secondary" onClick={() => setMonthValue(shiftMonthValue(monthValue, 1))} aria-label="Next month">
+              ›
+            </Button>
+          </div>
+        </Field>
+        <Field label="Class">
+          <Select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
+            <option value="all">All classes</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        <table className="w-full min-w-[720px] text-left text-sm">
+          <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+            <tr>
+              <th className="px-4 py-3">Student</th>
+              <th className="px-4 py-3">Class</th>
+              <th className="px-4 py-3">Attendance ({formatMonth(monthStart)})</th>
+              <th className="px-4 py-3">Exams this month</th>
+              <th className="px-4 py-3">Last Sent</th>
+              <th className="px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                  Loading...
+                </td>
+              </tr>
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                  No students match this filter.
+                </td>
+              </tr>
+            ) : (
+              filtered.map((s) => {
+                const att = attendanceByStudent.get(s.id)
+                const examCount = s.class_id ? examCountByClass.get(s.class_id) ?? 0 : 0
+                const report = reportByStudent.get(s.id)
+                return (
+                  <tr
+                    key={s.id}
+                    className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/40 transition-colors"
+                  >
+                    <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{s.full_name}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {s.class_id ? classById.get(s.class_id)?.name ?? '—' : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {att ? `${att.present} / ${att.total} (${Math.round((att.present / att.total) * 1000) / 10}%)` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{examCount}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {report?.sent_at ? formatDate(report.sent_at) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {s.guardian_email ? (
+                        <button
+                          onClick={() => sendTestReport(s)}
+                          disabled={sendingId === s.id}
+                          className="text-sm text-brand-600 hover:underline disabled:opacity-50 dark:text-gold-400"
+                        >
+                          {sendingId === s.id ? 'Sending...' : 'Send Test Report'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400 dark:text-slate-500" title="No guardian email on file">
+                          No email
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
