@@ -510,11 +510,19 @@ Deno.serve(async (req) => {
     try {
       // Walk the chain until one transport accepts the message. Errors are
       // collected rather than returned on first failure, so a message that
-      // nothing could deliver reports why every route refused it.
+      // nothing could deliver reports why every route refused it. Each
+      // attempt gets its own try/catch — a thrown network error (timeout,
+      // DNS failure, connection reset) must be treated the same as a
+      // provider returning ok:false, or one flaky provider aborts the whole
+      // chain and the fallback (the entire point of having one) never runs.
       let sendResult: SendResult = { ok: false }
       const attemptErrors: string[] = []
       for (const provider of usableProviders) {
-        sendResult = await sendWith(provider, mobile, variables)
+        try {
+          sendResult = await sendWith(provider, mobile, variables)
+        } catch (err) {
+          sendResult = { ok: false, error: (err as Error).message }
+        }
         if (sendResult.ok) break
         attemptErrors.push(`${provider}: ${sendResult.error ?? 'failed'}`)
       }
