@@ -5,14 +5,17 @@ import { Button } from '@/components/ui/Button'
 import { Field, Select } from '@/components/ui/Input'
 import { currentMonthValue, formatDate, formatMonth, monthValueToDate, shiftMonthValue } from '@/lib/utils'
 import { edgeFunctionError } from '@/lib/errors'
-import type { Attendance, Class, Exam, MonthlyReport, Student } from '@/types/database'
+import { buildMonthlyReportPdfBase64 } from '@/lib/pdf'
+import type { Attendance, Class, Exam, ExamResult, MonthlyReport, Student, Subject } from '@/types/database'
 
 export function MonthlyReportsPage() {
   const { show } = useToast()
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<Class[]>([])
+  const [subjects, setSubjects] = useState<Subject[]>([])
   const [attendance, setAttendance] = useState<Attendance[]>([])
   const [exams, setExams] = useState<Exam[]>([])
+  const [examResults, setExamResults] = useState<ExamResult[]>([])
   const [reports, setReports] = useState<MonthlyReport[]>([])
   const [loading, setLoading] = useState(true)
   const [monthValue, setMonthValue] = useState(currentMonthValue())
@@ -24,9 +27,10 @@ export function MonthlyReportsPage() {
 
   async function load() {
     setLoading(true)
-    const [studentsRes, classesRes, attendanceRes, examsRes, reportsRes] = await Promise.all([
+    const [studentsRes, classesRes, subjectsRes, attendanceRes, examsRes, reportsRes] = await Promise.all([
       supabase.from('students').select('*').eq('enrollment_status', 'enrolled').order('full_name'),
       supabase.from('classes').select('*').order('name'),
+      supabase.from('subjects').select('*'),
       supabase.from('attendance').select('*').gte('date', monthStart).lt('date', monthEnd),
       supabase.from('exams').select('*').gte('exam_date', monthStart).lt('exam_date', monthEnd),
       supabase.from('monthly_reports').select('*').eq('month', monthStart),
@@ -34,9 +38,24 @@ export function MonthlyReportsPage() {
     if (studentsRes.error) show(studentsRes.error.message, 'error')
     else setStudents(studentsRes.data as Student[])
     if (classesRes.data) setClasses(classesRes.data as Class[])
+    if (subjectsRes.data) setSubjects(subjectsRes.data as Subject[])
     if (attendanceRes.data) setAttendance(attendanceRes.data as Attendance[])
-    if (examsRes.data) setExams(examsRes.data as Exam[])
     if (reportsRes.data) setReports(reportsRes.data as MonthlyReport[])
+
+    const examRows = (examsRes.data as Exam[]) ?? []
+    setExams(examRows)
+    if (examRows.length > 0) {
+      const resultsRes = await supabase
+        .from('exam_results')
+        .select('*')
+        .in(
+          'exam_id',
+          examRows.map((e) => e.id)
+        )
+      if (resultsRes.data) setExamResults(resultsRes.data as ExamResult[])
+    } else {
+      setExamResults([])
+    }
     setLoading(false)
   }
 
@@ -65,6 +84,8 @@ export function MonthlyReportsPage() {
   }, [exams])
 
   const reportByStudent = useMemo(() => new Map(reports.map((r) => [r.student_id, r])), [reports])
+  const subjectById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
+  const resultByExamId = useMemo(() => new Map(examResults.map((r) => [r.exam_id, r])), [examResults])
 
   const filtered = classFilter === 'all' ? students : students.filter((s) => s.class_id === classFilter)
 
@@ -74,21 +95,50 @@ export function MonthlyReportsPage() {
       return
     }
     setSendingId(student.id)
-    const { data, error } = await supabase.functions.invoke('send-monthly-report', {
-      body: { studentId: student.id, month: monthStart },
-    })
-    setSendingId(null)
-    if (error) {
-      show(await edgeFunctionError(error, 'Failed to send report.'), 'error')
-      return
+    try {
+      const className = student.class_id ? classById.get(student.class_id)?.name ?? '' : ''
+      const studentAttendance = attendance
+        .filter((a) => a.student_id === student.id)
+        .map((a) => ({ date: a.date, status: a.status }))
+      const studentExams = exams
+        .filter((e) => e.class_id === student.class_id)
+        .map((e) => {
+          const result = resultByExamId.get(e.id)
+          if (!result || result.student_id !== student.id) return null
+          return {
+            examName: e.name,
+            subjectName: subjectById.get(e.subject_id)?.name ?? '—',
+            obtained: result.marks_obtained,
+            total: e.total_marks,
+          }
+        })
+        .filter((e): e is NonNullable<typeof e> => e !== null)
+
+      const pdfBase64 = await buildMonthlyReportPdfBase64({
+        studentName: student.full_name,
+        className,
+        monthLabel: formatMonth(monthStart),
+        attendance: studentAttendance,
+        exams: studentExams,
+      })
+
+      const { data, error } = await supabase.functions.invoke('send-monthly-report', {
+        body: { studentId: student.id, month: monthStart, pdfBase64 },
+      })
+      if (error) {
+        show(await edgeFunctionError(error, 'Failed to send report.'), 'error')
+        return
+      }
+      const result = data as { error?: string; success?: boolean }
+      if (result?.error) {
+        show(result.error, 'error')
+        return
+      }
+      show(`Report emailed to ${student.guardian_email}, with PDF attached.`)
+      load()
+    } finally {
+      setSendingId(null)
     }
-    const result = data as { error?: string; success?: boolean; hadExams?: boolean }
-    if (result?.error) {
-      show(result.error, 'error')
-      return
-    }
-    show(`Test report emailed to ${student.guardian_email}${result.hadExams ? '' : ' (no exams this month)'}.`)
-    load()
   }
 
   return (
