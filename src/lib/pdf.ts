@@ -87,6 +87,8 @@ export async function buildMonthlyReportPdfBase64(params: {
   doc.text(`Class: ${className || '—'}`, 14, detailsY + 6)
   doc.text(`Month: ${monthLabel}`, 196, detailsY, { align: 'right' })
 
+  // Page 1: attendance, as its own full page with a day-by-day table —
+  // exam results always start on page 2 so the two don't run together.
   let cursorY = detailsY + 18
   doc.setFontSize(12)
   doc.setTextColor(122, 31, 46)
@@ -97,29 +99,56 @@ export async function buildMonthlyReportPdfBase64(params: {
 
   if (attendance.length === 0) {
     doc.text('No attendance was recorded this month.', 14, cursorY)
-    cursorY += 10
   } else {
     const present = attendance.filter((a) => a.status === 'present' || a.status === 'late').length
     const pct = Math.round((present / attendance.length) * 1000) / 10
     doc.text(`Present: ${present} / ${attendance.length} days recorded (${pct}%)`, 14, cursorY)
-    cursorY += 6
-    const absentDates = attendance.filter((a) => a.status === 'absent').map((a) => formatDate(a.date))
-    if (absentDates.length > 0) {
-      const absentLine = doc.splitTextToSize(`Absent on: ${absentDates.join(', ')}`, 182)
-      doc.text(absentLine, 14, cursorY)
-      cursorY += absentLine.length * 5 + 4
-    } else {
-      cursorY += 4
+    cursorY += 8
+
+    // Two side-by-side columns rather than one long list — a full month
+    // (up to 31 rows) comfortably fits within a single page this way,
+    // instead of spilling onto a second page and pushing exam results
+    // further out.
+    const sorted = [...attendance].sort((a, b) => a.date.localeCompare(b.date))
+    const half = Math.ceil(sorted.length / 2)
+    const left = sorted.slice(0, half)
+    const right = sorted.slice(half)
+    const rowsToBody = (rows: typeof sorted) =>
+      rows.map((a) => [formatDate(a.date), a.status.charAt(0).toUpperCase() + a.status.slice(1)])
+
+    autoTable(doc, {
+      startY: cursorY,
+      head: [['Date', 'Status']],
+      body: rowsToBody(left),
+      headStyles: { fillColor: [122, 31, 46] },
+      styles: { fontSize: 9, cellPadding: 1.5 },
+      margin: { left: 14 },
+      tableWidth: 88,
+    })
+    if (right.length > 0) {
+      autoTable(doc, {
+        startY: cursorY,
+        head: [['Date', 'Status']],
+        body: rowsToBody(right),
+        headStyles: { fillColor: [122, 31, 46] },
+        styles: { fontSize: 9, cellPadding: 1.5 },
+        margin: { left: 108 },
+        tableWidth: 88,
+      })
     }
   }
 
   if (exams.length > 0) {
+    doc.addPage()
     doc.setFontSize(12)
     doc.setTextColor(122, 31, 46)
-    doc.text('Exam Results', 14, cursorY + 4)
+    doc.text(`Exam Results — ${studentName}`, 14, 20)
+    doc.setTextColor(100)
+    doc.setFontSize(10)
+    doc.text(`${className || '—'} · ${monthLabel}`, 14, 27)
     doc.setTextColor(0)
     autoTable(doc, {
-      startY: cursorY + 8,
+      startY: 34,
       head: [['Exam', 'Subject', 'Marks', '%']],
       body: exams.map((e) => [
         e.examName,
