@@ -89,6 +89,13 @@ export function MonthlyReportsPage() {
 
   const filtered = classFilter === 'all' ? students : students.filter((s) => s.class_id === classFilter)
 
+  // Generates the PDF and sends it in one pass, per student — never persisted
+  // to a table/bucket, and the base64 string is a local variable that falls
+  // out of scope (and gets garbage-collected) once the send completes. If a
+  // bulk "send to all" ever gets added, keep this same one-at-a-time shape
+  // (await each send before starting the next) rather than pre-building an
+  // array of every student's PDF up front, which would hold all of them in
+  // memory simultaneously.
   async function sendTestReport(student: Student) {
     if (!student.guardian_email) {
       show('No guardian email on file for this student.', 'error')
