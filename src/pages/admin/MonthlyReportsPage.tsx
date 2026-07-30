@@ -85,7 +85,13 @@ export function MonthlyReportsPage() {
 
   const reportByStudent = useMemo(() => new Map(reports.map((r) => [r.student_id, r])), [reports])
   const subjectById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
-  const resultByExamId = useMemo(() => new Map(examResults.map((r) => [r.exam_id, r])), [examResults])
+  // Keyed by exam+student, not just exam — a class of N students all share
+  // the same exam_id, so keying on exam_id alone would collapse every
+  // student's result down to whichever one happened to load last.
+  const resultByExamAndStudent = useMemo(
+    () => new Map(examResults.map((r) => [`${r.exam_id}|${r.student_id}`, r])),
+    [examResults]
+  )
 
   const filtered = classFilter === 'all' ? students : students.filter((s) => s.class_id === classFilter)
 
@@ -110,8 +116,8 @@ export function MonthlyReportsPage() {
       const studentExams = exams
         .filter((e) => e.class_id === student.class_id)
         .map((e) => {
-          const result = resultByExamId.get(e.id)
-          if (!result || result.student_id !== student.id) return null
+          const result = resultByExamAndStudent.get(`${e.id}|${student.id}`)
+          if (!result) return null
           return {
             examName: e.name,
             subjectName: subjectById.get(e.subject_id)?.name ?? '—',
