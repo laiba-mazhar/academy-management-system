@@ -41,8 +41,14 @@
 }
 
 @media print {
+  /* 1.5cm margins left only 180mm of usable A4 width — two 90mm student
+     cards plus the 6mm gap between them (186mm) didn't fit, overflowing
+     every row by 6mm and clipping/misplacing the second card. 1cm margins
+     give 190mm, which fits two cards with 4mm to spare; every other
+     print document already had comfortable headroom at 1.5cm, so this
+     only ever gains them margin, it doesn't tighten anything. */
   @page {
-    margin: 1.5cm;
+    margin: 1cm;
   }
 
   html,
