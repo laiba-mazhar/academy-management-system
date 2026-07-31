@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency, todayLocalDate } from '@/lib/utils'
+
+// The barcode decoder is ~460 kB of the bundle and is only needed by whoever
+// actually opens the camera — keeping it out of the main chunk means admins,
+// teachers, and the far more common USB-scanner path never download it.
+const BarcodeCamera = lazy(() =>
+  import('@/components/BarcodeCamera').then((m) => ({ default: m.BarcodeCamera }))
+)
 
 // Shape returned by the scan_student_attendance() RPC.
 interface ScanResult {
@@ -75,7 +82,12 @@ export function ScannerPage() {
   const [busy, setBusy] = useState(false)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [clock, setClock] = useState(() => new Date())
+  const [cameraOn, setCameraOn] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Mirrors `busy` for the guard inside recordScan: the camera calls it from a
+  // decode callback that closes over a stale render, so reading the state
+  // variable there would let a second scan through mid-request.
+  const busyRef = useRef(false)
 
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 1000)
@@ -83,30 +95,36 @@ export function ScannerPage() {
   }, [])
 
   // A keyboard-wedge scanner types into whatever holds focus, so the input has
-  // to keep it — including after a stray click elsewhere on the screen.
+  // to keep it — including after a stray click elsewhere on the screen. Clicks
+  // on a real control are left alone though: grabbing focus back from the
+  // camera picker would close the dropdown as it opened.
   useEffect(() => {
-    function refocus() {
+    function refocus(e: MouseEvent) {
+      const target = e.target as HTMLElement | null
+      if (target?.closest('button, select, input, textarea, a, [role="button"]')) return
       inputRef.current?.focus()
     }
-    refocus()
+    inputRef.current?.focus()
     window.addEventListener('click', refocus)
     return () => window.removeEventListener('click', refocus)
   }, [])
 
-  async function handleScan(e: FormEvent) {
-    e.preventDefault()
-    const value = code.trim()
-    if (!value || busy) return
+  // The single path a card number takes, whatever produced it — typed by hand,
+  // typed by a USB scanner in keyboard-wedge mode, or decoded from the webcam.
+  // Everything downstream (the RPC, the register, the fee check) is identical.
+  const recordScan = useCallback(async (raw: string) => {
+    const value = raw.trim()
+    if (!value || busyRef.current) return
 
+    busyRef.current = true
     setBusy(true)
     setErrorText(null)
     const { data, error } = await supabase.rpc('scan_student_attendance', {
       p_barcode: value,
       p_local_date: todayLocalDate(),
     })
+    busyRef.current = false
     setBusy(false)
-    setCode('')
-    inputRef.current?.focus()
 
     if (error) {
       setResult(null)
@@ -131,6 +149,14 @@ export function ScannerPage() {
         ].slice(0, 8)
       )
     }
+  }, [])
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    const value = code
+    setCode('')
+    inputRef.current?.focus()
+    recordScan(value)
   }
 
   const student = result?.ok ? result.student : undefined
@@ -140,7 +166,7 @@ export function ScannerPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 p-4 sm:p-6">
-      <form onSubmit={handleScan} className="rounded-2xl border border-gold-400/30 bg-white p-5 shadow-sm dark:border-gold-500/20 dark:bg-slate-800">
+      <form onSubmit={handleSubmit} className="rounded-2xl border border-gold-400/30 bg-white p-5 shadow-sm dark:border-gold-500/20 dark:bg-slate-800">
         <label htmlFor="scan" className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-200">
           Scan student card
         </label>
@@ -163,10 +189,37 @@ export function ScannerPage() {
             {busy ? 'Checking...' : 'Sign in'}
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-          No scanner yet? Type a card number (e.g. MKT000001) and press Enter — it works exactly the same.
-        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            No scanner yet? Type a card number (e.g. MKT000001) and press Enter — it works exactly the same.
+          </p>
+          {/* Once the camera is up it carries its own Stop control, so this
+              button would just be a second one saying the same thing. */}
+          {!cameraOn && (
+            <button
+              type="button"
+              onClick={() => setCameraOn(true)}
+              className="shrink-0 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              Use camera
+            </button>
+          )}
+        </div>
       </form>
+
+      {/* The camera is another way to produce a card number — it hands the same
+          string to recordScan that the keyboard path does. */}
+      {cameraOn && (
+        <Suspense
+          fallback={
+            <p className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+              Loading camera scanner...
+            </p>
+          }
+        >
+          <BarcodeCamera onDetected={recordScan} onStop={() => setCameraOn(false)} />
+        </Suspense>
+      )}
 
       {errorText && (
         <div className="rounded-2xl border border-red-300 bg-red-50 p-5 text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
