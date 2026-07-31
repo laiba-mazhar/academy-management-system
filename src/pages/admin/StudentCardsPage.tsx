@@ -9,6 +9,24 @@ import { StudentCard } from '@/components/StudentCard'
 import { printElement } from '@/lib/printElement'
 import type { Class, Student } from '@/types/database'
 
+const CARDS_PER_ROW = 2
+
+// Chromium's print pagination doesn't reliably handle a `flex-wrap` container
+// breaking across pages — once a page break falls inside the wrapped group,
+// items after the break can each end up alone on their own row instead of
+// re-flowing into pairs (confirmed against a real multi-page print; a small
+// same-page test didn't reproduce it, which is why this wasn't caught
+// earlier). Building explicit two-item rows sidesteps the ambiguity: each
+// row is its own small, unwrapped flex container, and only the boundary
+// *between* rows ever needs to break, which browsers handle correctly.
+function chunkIntoRows<T>(items: T[], size: number): T[][] {
+  const rows: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    rows.push(items.slice(i, i + size))
+  }
+  return rows
+}
+
 // Every student gets a card number the moment they're admitted (assigned by a
 // database trigger), so this page never "generates" anything — it just renders
 // and prints the card that already exists for each student on the roll.
@@ -97,16 +115,20 @@ export function StudentCardsPage() {
       ) : filtered.length === 0 ? (
         <EmptyState title="No cards to show" description="No students match the current filters." />
       ) : (
-        <div ref={sheetRef} className="print-area card-sheet flex flex-wrap gap-4">
-          {filtered.map((s) => (
-            <div key={s.id} className="flex flex-col items-center gap-2">
-              <StudentCard student={s} cls={s.class_id ? classById.get(s.class_id) : undefined} />
-              <button
-                onClick={() => setPrintOne(s)}
-                className="no-print text-xs font-medium text-brand-600 hover:underline dark:text-gold-400"
-              >
-                Print this card
-              </button>
+        <div ref={sheetRef} className="print-area card-sheet flex flex-col gap-4">
+          {chunkIntoRows(filtered, CARDS_PER_ROW).map((row, rowIdx) => (
+            <div key={rowIdx} className="card-row flex flex-wrap gap-4">
+              {row.map((s) => (
+                <div key={s.id} className="flex flex-col items-center gap-2">
+                  <StudentCard student={s} cls={s.class_id ? classById.get(s.class_id) : undefined} />
+                  <button
+                    onClick={() => setPrintOne(s)}
+                    className="no-print text-xs font-medium text-brand-600 hover:underline dark:text-gold-400"
+                  >
+                    Print this card
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
         </div>
