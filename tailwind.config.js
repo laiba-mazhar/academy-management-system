@@ -36,6 +36,18 @@ export default {
           700: '#8a6320',
         },
       },
+      keyframes: {
+        // Used by the attendance desk so each scan result visibly replaces the
+        // last one — back-to-back students otherwise swap with no cue that
+        // anything happened.
+        'scan-in': {
+          from: { opacity: '0', transform: 'translateY(6px)' },
+          to: { opacity: '1', transform: 'none' },
+        },
+      },
+      animation: {
+        'scan-in': 'scan-in 200ms ease-out',
+      },
     },
   },
   plugins: [],
