@@ -318,6 +318,18 @@ export async function downloadQuestionPaperPdf(paper: QuestionPaper) {
       y += LINE_H
     }
 
+    const options = question.question_type === 'mcq' ? (question.options ?? []) : []
+    if (options.length > 0) {
+      // One wrapped row of choices, as they appear on a board paper.
+      const line = options.map((o) => `(${o.key.toLowerCase()}) ${o.text}`).join('    ')
+      const optionLines = doc.splitTextToSize(line, BODY_RIGHT - PART_TEXT_X) as string[]
+      newPageIfNeeded(optionLines.length * LINE_H)
+      for (const optionLine of optionLines) {
+        doc.text(optionLine, PART_TEXT_X, y)
+        y += LINE_H
+      }
+    }
+
     if (parts.length > 0) {
       y += BLOCK_GAP // a visible step down from the stem into its sub-parts
       for (const part of parts) {

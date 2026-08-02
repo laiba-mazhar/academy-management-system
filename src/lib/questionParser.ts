@@ -1,0 +1,283 @@
+import type { QuestionDifficulty, QuestionOption, QuestionType } from '@/types/database'
+
+// Turns the text of a past paper — extracted from a PDF or pasted straight out
+// of Word — into draft questions for the import review screen.
+//
+// It is deliberately allowed to be wrong. Every draft is shown to a teacher
+// with its type in a dropdown before anything reaches the bank, so the parser
+// optimises for "sensible guess, honest about uncertainty" rather than for
+// being right every time.
+
+export interface DraftQuestion {
+  /** Client-side row key; drafts have no database id until they are saved. */
+  key: string
+  questionType: QuestionType
+  text: string
+  options: QuestionOption[]
+  /** Kept as a string because it feeds an <input> in the review grid. */
+  marks: string
+  chapter: string
+  difficulty: QuestionDifficulty | ''
+  /** Why the parser picked this type — shown as a hint in the review grid. */
+  reason: string
+  /** The guess came from shape alone. These sort to the top for review. */
+  uncertain: boolean
+}
+
+export interface ParseResult {
+  drafts: DraftQuestion[]
+  /** True when the document announced its own sections, i.e. a good parse. */
+  sectionsFound: boolean
+}
+
+// "SECTION A", "OBJECTIVE", "Short Questions" … A paper that labels its own
+// sections tells us the types outright, which beats every other signal.
+const SECTION_PATTERNS: { type: QuestionType; re: RegExp }[] = [
+  { type: 'mcq', re: /\b(objective|mcqs?|multiple\s*choice|choose\s+the\s+correct|encircle)\b/i },
+  { type: 'long', re: /\b(long|detailed|extensive|essay)\s*(answer|question|type)/i },
+  { type: 'short', re: /\b(short)\s*(answer|question|type)/i },
+]
+
+// "SECTION A" / "PART-I" on their own carry no type, but they do reset the
+// numbering, and in board papers A/I is objective, B/II short, C/III long.
+const LETTERED_SECTION = /^\s*(?:section|part)\s*[-–—:]?\s*([abc]|i{1,3})\b/i
+const LETTERED_SECTION_TYPE: Record<string, QuestionType> = {
+  a: 'mcq',
+  i: 'mcq',
+  b: 'short',
+  ii: 'short',
+  c: 'long',
+  iii: 'long',
+}
+
+// "Qno: 1", "Q.1", "Question 3" — an explicit marker, unambiguous.
+const EXPLICIT_Q = /^\s*(?:q(?:uestion)?\s*\.?\s*(?:no)?\s*[.:-]?\s*)(\d{1,2})\s*[).:-]?\s*(.*)$/i
+// "1." / "1)" with no Q — only treated as a question when the paper never
+// uses explicit markers, otherwise these are sub-parts.
+const BARE_NUMBER_Q = /^\s*(\d{1,2})\s*[).]\s*(.+)$/
+// "a)", "(b)", "iii." — an option or a sub-part, decided by context.
+const OPTION_LETTER = /^\s*\(?([a-hA-H]|i{1,3}v?|iv|v)\)\s*(.*)$/
+// "1)" / "2." as a sub-part. Only consulted when bare numbers are not
+// starting questions, otherwise every question would swallow the next one.
+const OPTION_NUMBER = /^\s*\(?(\d{1,2})[).]\s*(.+)$/
+// Several options crammed onto one line: "(a) 4  (b) 5  (c) 6  (d) 7".
+const INLINE_OPTIONS = /\(?\b([a-hA-H])\)\s*/g
+// A trailing "(5)" / "[2 marks]".
+const TRAILING_MARKS = /[([]\s*(\d+(?:\.\d+)?)\s*(?:marks?)?\s*[)\]]\s*$/i
+// "Attempt any six questions" — an instruction, not a question.
+const INSTRUCTION = /^\s*(attempt|answer)\s+(any|all)\b/i
+
+function normalise(raw: string): string[] {
+  return raw
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) => l.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+}
+
+function detectSection(line: string): QuestionType | null {
+  for (const { type, re } of SECTION_PATTERNS) {
+    if (re.test(line)) return type
+  }
+  const lettered = LETTERED_SECTION.exec(line)
+  if (lettered) return LETTERED_SECTION_TYPE[lettered[1].toLowerCase()] ?? null
+  return null
+}
+
+// A line is only a section header if it is short — "Choose the correct answer"
+// as a heading, not a sentence that happens to contain the word "objective".
+function isSectionHeader(line: string): boolean {
+  return line.length <= 70 && detectSection(line) !== null
+}
+
+function splitInlineOptions(line: string): QuestionOption[] | null {
+  const markers = [...line.matchAll(INLINE_OPTIONS)]
+  if (markers.length < 3) return null
+
+  const options: QuestionOption[] = []
+  markers.forEach((m, i) => {
+    const start = m.index! + m[0].length
+    const end = i + 1 < markers.length ? markers[i + 1].index! : line.length
+    const text = line.slice(start, end).trim()
+    if (text) options.push({ key: m[1].toUpperCase(), text })
+  })
+  return options.length >= 3 ? options : null
+}
+
+// MCQ choices are a handful of short alternatives. Sub-parts of a maths
+// question ("a) 4/7 - 5/14") share the same shape, so length and count are
+// what separate them when no section header settled it.
+function looksLikeMcqOptions(options: QuestionOption[]): boolean {
+  if (options.length < 3 || options.length > 5) return false
+  return options.every((o) => o.text.length <= 60)
+}
+
+interface Building {
+  lines: string[]
+  options: QuestionOption[]
+  marks: string
+  sectionType: QuestionType | null
+}
+
+export function parseQuestions(raw: string): ParseResult {
+  const lines = normalise(raw)
+  // A paper that writes "Qno:" uses bare "1)" for sub-parts, so bare numbers
+  // must not start questions there. Decided once for the whole document.
+  const usesExplicitMarkers = lines.some((l) => EXPLICIT_Q.test(l))
+
+  const drafts: DraftQuestion[] = []
+  let sectionType: QuestionType | null = null
+  let sectionsFound = false
+  let current: Building | null = null
+  let started = false
+
+  function flush() {
+    if (!current) return
+    const built = finish(current, drafts.length)
+    if (built) drafts.push(built)
+    current = null
+  }
+
+  for (const line of lines) {
+    if (isSectionHeader(line)) {
+      flush()
+      sectionType = detectSection(line)
+      sectionsFound = true
+      started = true
+      continue
+    }
+
+    if (INSTRUCTION.test(line)) {
+      flush()
+      continue
+    }
+
+    // Inside an objective section every numbered item is its own MCQ, even in
+    // a paper that otherwise writes "Q.1" — board papers restart the numbering
+    // per section. Anywhere else, a bare number under an explicit-marker paper
+    // is a sub-part of the question above it.
+    const bareStartsQuestion = !usesExplicitMarkers || sectionType === 'mcq'
+    const explicit = usesExplicitMarkers ? EXPLICIT_Q.exec(line) : null
+    const bare = bareStartsQuestion ? BARE_NUMBER_Q.exec(line) : null
+    const start = explicit ?? bare
+    if (start) {
+      flush()
+      started = true
+      current = { lines: start[2] ? [start[2]] : [], options: [], marks: '', sectionType }
+      const marks = TRAILING_MARKS.exec(line)
+      if (marks) {
+        current.marks = marks[1]
+        current.lines = current.lines.map((l) => l.replace(TRAILING_MARKS, '').trim())
+      }
+      continue
+    }
+
+    // Everything above the first question or section header is letterhead —
+    // school name, address, the NAME/ROLL NO grid. Dropping by position
+    // rather than by pattern means it works for any school's template.
+    if (!started) continue
+    if (!current) continue
+
+    const inline = splitInlineOptions(line)
+    if (inline) {
+      current.options.push(...inline)
+      continue
+    }
+
+    const option = OPTION_LETTER.exec(line) ?? (bareStartsQuestion ? null : OPTION_NUMBER.exec(line))
+    if (option && option[2]) {
+      current.options.push({ key: option[1].toUpperCase(), text: option[2].trim() })
+      continue
+    }
+
+    const marks = TRAILING_MARKS.exec(line)
+    if (marks && !current.marks) current.marks = marks[1]
+    current.lines.push(line.replace(TRAILING_MARKS, '').trim())
+  }
+
+  flush()
+  return { drafts, sectionsFound }
+}
+
+function finish(building: Building, index: number): DraftQuestion | null {
+  const text = building.lines.join(' ').trim()
+  if (!text && building.options.length === 0) return null
+
+  const { type, reason, uncertain } = classify(building, text)
+
+  // Only an MCQ keeps its options as options. Everywhere else they were the
+  // sub-parts of the question, so they fold back into the text as the newline
+  // form the exam paper renderer already understands.
+  const isMcq = type === 'mcq'
+  const body =
+    isMcq || building.options.length === 0
+      ? text
+      : [text, ...building.options.map((o) => `${o.key.toLowerCase()}) ${o.text}`)].filter(Boolean).join('\n')
+
+  return {
+    key: `draft-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    questionType: type,
+    text: body,
+    options: isMcq ? building.options : [],
+    marks: building.marks || defaultMarks(type),
+    chapter: '',
+    difficulty: '',
+    reason,
+    uncertain,
+  }
+}
+
+function classify(building: Building, text: string): { type: QuestionType; reason: string; uncertain: boolean } {
+  const mcqShaped = looksLikeMcqOptions(building.options)
+
+  // A section header is the strongest signal in the document.
+  if (building.sectionType) {
+    // …but a maths question with two sub-parts sitting in a "short questions"
+    // section is still a short question, so only trust the MCQ label when the
+    // shape agrees.
+    if (building.sectionType !== 'mcq' || mcqShaped || building.options.length === 0) {
+      return { type: building.sectionType, reason: 'From section heading', uncertain: false }
+    }
+  }
+
+  if (mcqShaped) {
+    return { type: 'mcq', reason: `${building.options.length} short options`, uncertain: !building.sectionType }
+  }
+
+  if (building.marks) {
+    const marks = Number(building.marks)
+    if (marks <= 1) return { type: 'mcq', reason: '1 mark', uncertain: true }
+    if (marks >= 5) return { type: 'long', reason: `${marks} marks`, uncertain: false }
+    return { type: 'short', reason: `${marks} marks`, uncertain: false }
+  }
+
+  if (/^(true|false)\b/i.test(text) || /\btrue\s*\/\s*false\b/i.test(text)) {
+    return { type: 'true_false', reason: 'Mentions true/false', uncertain: true }
+  }
+
+  if (/_{3,}|\.{4,}/.test(text)) {
+    return { type: 'fill_blank', reason: 'Contains a blank', uncertain: true }
+  }
+
+  if (building.options.length > 0 || text.length > 160) {
+    return { type: 'long', reason: 'Has sub-parts or is long', uncertain: true }
+  }
+
+  return { type: 'short', reason: 'Short single question', uncertain: true }
+}
+
+function defaultMarks(type: QuestionType): string {
+  if (type === 'mcq' || type === 'true_false' || type === 'fill_blank') return '1'
+  if (type === 'long') return '5'
+  return '2'
+}
+
+// Two questions imported from ten years of past papers are very often the same
+// question with different spacing or punctuation. Comparing on a stripped form
+// catches those without needing anything cleverer.
+export function dedupeKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9؀-ۿ]+/g, '')
+    .slice(0, 120)
+}

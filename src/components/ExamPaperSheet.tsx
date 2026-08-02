@@ -106,11 +106,23 @@ export function ExamPaperSheet({ paper }: { paper: QuestionPaper }) {
       <ol className="relative list-none" style={{ marginTop: '4mm' }}>
         {paper.questions.map((question, index) => {
           const { stem, parts } = parseQuestionText(question.question_text)
+          const options = question.question_type === 'mcq' ? (question.options ?? []) : []
           return (
             <li key={index} className="font-bold" style={{ fontSize: '12pt', marginBottom: '3.5mm' }}>
               <p style={{ lineHeight: 1.6 }}>
                 Qno: {index + 1}&nbsp;&nbsp;{stem}
               </p>
+              {/* MCQ choices sit on one wrapped row, the way they are printed
+                  on a board paper rather than as a vertical list. */}
+              {options.length > 0 && (
+                <div className="flex flex-wrap" style={{ marginTop: '1.5mm', paddingLeft: '6mm', gap: '2mm 8mm' }}>
+                  {options.map((option) => (
+                    <span key={option.key} style={{ lineHeight: 1.5 }}>
+                      ({option.key.toLowerCase()}) {option.text}
+                    </span>
+                  ))}
+                </div>
+              )}
               {parts.length > 0 && (
                 <div style={{ marginTop: '2mm', paddingLeft: '6mm' }}>
                   {parts.map((part, p) => (

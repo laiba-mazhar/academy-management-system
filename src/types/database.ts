@@ -98,6 +98,15 @@ export interface AttendanceSettings {
   threshold_percent: number
 }
 
+export type QuestionType = 'mcq' | 'short' | 'long' | 'fill_blank' | 'true_false'
+export type QuestionDifficulty = 'easy' | 'medium' | 'hard'
+
+/** One MCQ choice. `key` is the printed label — "A", "B", … */
+export interface QuestionOption {
+  key: string
+  text: string
+}
+
 export interface Question {
   id: string
   subject_id: string
@@ -105,6 +114,14 @@ export interface Question {
   chapter: string | null
   question_text: string
   marks: number
+  question_type: QuestionType
+  /** MCQ choices. Null for every other type. */
+  options: QuestionOption[] | null
+  /** Correct option key, or a model answer. Null when unknown. */
+  answer: string | null
+  difficulty: QuestionDifficulty | null
+  /** Free-text provenance: "Board 2023", or the imported file's name. */
+  source: string | null
   created_by: string | null
   created_at: string
 }
@@ -272,7 +289,18 @@ export interface Database {
       }
       questions: {
         Row: Question
-        Insert: InsertOf<Question, 'id' | 'chapter' | 'created_by' | 'created_at'>
+        Insert: InsertOf<
+          Question,
+          | 'id'
+          | 'chapter'
+          | 'question_type'
+          | 'options'
+          | 'answer'
+          | 'difficulty'
+          | 'source'
+          | 'created_by'
+          | 'created_at'
+        >
         Update: Partial<Question>
         Relationships: []
       }

@@ -1,3 +1,5 @@
+import type { QuestionOption, QuestionType } from '@/types/database'
+
 // Shared definition of a Maktab question paper, so the on-screen preview, the
 // browser print output and the downloaded PDF all describe the same document
 // instead of three drifting approximations of it.
@@ -64,11 +66,18 @@ export function formatDuration(minutes: number | null): string {
   return chunks.join(' ')
 }
 
+/** Only the parts of a bank question that end up printed on the paper. */
+export interface PaperQuestion {
+  question_text: string
+  question_type?: QuestionType
+  options?: QuestionOption[] | null
+}
+
 export interface QuestionPaper {
   examName: string
   className: string
   subjectName: string
   totalMarks: number
   durationMinutes: number | null
-  questions: { question_text: string }[]
+  questions: PaperQuestion[]
 }
