@@ -36,13 +36,11 @@ interface ScanResult {
     signed_in_at: string
     already_marked: boolean
   }
+  // The RPC also returns the outstanding amounts and the unpaid month list.
+  // The desk deliberately reads only the flag: whether an account is behind is
+  // the receptionist's business, what it owes is the office's.
   fee?: {
     overdue: boolean
-    overdue_amount: number
-    overdue_months: string[]
-    due_now_amount: number
-    admission_fee_due: number
-    security_fee_due: number
   }
 }
 
@@ -140,7 +138,6 @@ export function ScannerPage() {
   const student = result?.ok ? result.student : undefined
   const attendance = result?.ok ? result.attendance : undefined
   const fee = result?.ok ? result.fee : undefined
-  const otherDues = (fee?.admission_fee_due ?? 0) + (fee?.security_fee_due ?? 0) + (fee?.due_now_amount ?? 0)
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-5 sm:px-6 sm:py-6">
@@ -215,24 +212,13 @@ export function ScannerPage() {
             barcode={student.barcode}
             signedInAt={attendance.signed_in_at}
             alreadyMarked={attendance.already_marked}
-            pendingDues={fee?.overdue ? 0 : otherDues}
-            admissionDue={fee?.admission_fee_due ?? 0}
-            securityDue={fee?.security_fee_due ?? 0}
           />
 
           {/* Sits directly under the confirmation rather than above it: the desk
               still sees an overdue account before the student walks off, but it
               no longer outshouts the sign-in it belongs to. */}
           {fee?.overdue && (
-            <FeeOverdueBanner
-              overdueAmount={fee.overdue_amount}
-              overdueMonths={fee.overdue_months}
-              otherDues={otherDues}
-              admissionDue={fee.admission_fee_due}
-              securityDue={fee.security_fee_due}
-              guardianName={student.guardian_name}
-              guardianPhone={student.guardian_phone}
-            />
+            <FeeOverdueBanner guardianName={student.guardian_name} guardianPhone={student.guardian_phone} />
           )}
         </div>
       )}

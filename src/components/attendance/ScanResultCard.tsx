@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { formatCurrency } from '@/lib/utils'
 import { StudentAvatar } from './StudentAvatar'
 import { CheckIcon, ClockIcon, IdCardIcon, RotateCcwIcon, UserIcon } from './icons'
 
@@ -10,10 +9,6 @@ export interface ScanResultCardProps {
   signedInAt: string
   /** True when today's attendance already existed — this scan changed nothing. */
   alreadyMarked: boolean
-  /** Unpaid but not yet past due. Only surfaced when nothing is actually overdue. */
-  pendingDues: number
-  admissionDue: number
-  securityDue: number
 }
 
 const tone = {
@@ -42,16 +37,7 @@ function MetaItem({ icon, children }: { icon: ReactNode; children: ReactNode }) 
 
 // The confirmation the receptionist is looking for on every scan — deliberately
 // the loudest thing on the page once a card goes through.
-export function ScanResultCard({
-  name,
-  className,
-  barcode,
-  signedInAt,
-  alreadyMarked,
-  pendingDues,
-  admissionDue,
-  securityDue,
-}: ScanResultCardProps) {
+export function ScanResultCard({ name, className, barcode, signedInAt, alreadyMarked }: ScanResultCardProps) {
   const t = alreadyMarked ? tone.repeat : tone.fresh
   const time = new Date(signedInAt).toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -98,21 +84,6 @@ export function ScanResultCard({
       {alreadyMarked && (
         <p className="border-t border-amber-400/40 bg-amber-100/50 px-4 py-2 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-200 sm:px-6">
           Today&apos;s attendance was already recorded — this scan did not change it.
-        </p>
-      )}
-
-      {pendingDues > 0 && (
-        <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-t border-slate-900/5 bg-white/50 px-4 py-2 text-xs text-slate-600 dark:border-white/5 dark:bg-slate-900/20 dark:text-slate-300 sm:px-6">
-          <span className="font-medium text-slate-700 dark:text-slate-200">
-            Fees pending <span className="font-normal text-slate-500 dark:text-slate-400">(not yet overdue)</span>
-          </span>
-          <span className="tabular-nums">{formatCurrency(pendingDues)}</span>
-          {admissionDue > 0 && (
-            <span className="text-slate-400 dark:text-slate-500">admission {formatCurrency(admissionDue)}</span>
-          )}
-          {securityDue > 0 && (
-            <span className="text-slate-400 dark:text-slate-500">security {formatCurrency(securityDue)}</span>
-          )}
         </p>
       )}
     </section>
