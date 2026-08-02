@@ -3,13 +3,25 @@ import { Link, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
-import { Field, Input, Textarea } from '@/components/ui/Input'
+import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { ExamPaperPrintTarget, ExamPaperSheet } from '@/components/ExamPaperSheet'
+import { McqOptionsEditor } from '@/components/McqOptionsEditor'
+import { QUESTION_TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import { formatDate, formatDateTime, percentage, toPakistaniMsisdn } from '@/lib/utils'
 import { edgeFunctionError, friendlyError } from '@/lib/errors'
 import { downloadQuestionPaperPdf } from '@/lib/pdf'
 import type { QuestionPaper } from '@/lib/examPaper'
-import type { Class, Exam, ExamQuestion, ExamResult, Question, Student, Subject } from '@/types/database'
+import type {
+  Class,
+  Exam,
+  ExamQuestion,
+  ExamResult,
+  Question,
+  QuestionOption,
+  QuestionType,
+  Student,
+  Subject,
+} from '@/types/database'
 
 export function ExamDetailPage({ basePath }: { basePath: string }) {
   const { examId } = useParams()
@@ -29,7 +41,13 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   const [loading, setLoading] = useState(true)
   const [savingMarks, setSavingMarks] = useState(false)
   const [showAddQuestion, setShowAddQuestion] = useState(false)
-  const [newQuestion, setNewQuestion] = useState({ question_text: '', marks: '', chapter: '' })
+  const [newQuestion, setNewQuestion] = useState<{
+    question_text: string
+    marks: string
+    chapter: string
+    question_type: QuestionType
+    options: QuestionOption[]
+  }>({ question_text: '', marks: '', chapter: '', question_type: 'short', options: [] })
   const [addQuestionError, setAddQuestionError] = useState<string | null>(null)
   const [addingQuestion, setAddingQuestion] = useState(false)
   const [downloadingPaper, setDownloadingPaper] = useState(false)
@@ -162,6 +180,9 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
         chapter: newQuestion.chapter.trim() || null,
         question_text: newQuestion.question_text.trim(),
         marks,
+        question_type: newQuestion.question_type,
+        options:
+          newQuestion.question_type === 'mcq' && newQuestion.options.length > 0 ? newQuestion.options : null,
       })
       .select()
       .single()
@@ -175,7 +196,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     // never leave it invisible, and a retry can never re-insert a duplicate.
     const question = data as Question
     setQuestions((prev) => [question, ...prev])
-    setNewQuestion({ question_text: '', marks: '', chapter: '' })
+    setNewQuestion({ question_text: '', marks: '', chapter: '', question_type: 'short', options: [] })
     setAddQuestionError(null)
     setShowAddQuestion(false)
 
@@ -376,13 +397,36 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
             </div>
             {showAddQuestion ? (
               <div className="space-y-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+                <Field label="Question type">
+                  <Select
+                    value={newQuestion.question_type}
+                    onChange={(e) =>
+                      setNewQuestion({ ...newQuestion, question_type: e.target.value as QuestionType })
+                    }
+                  >
+                    {QUESTION_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {QUESTION_TYPE_LABELS[t]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
                 <Field label="Question text">
                   <Textarea
                     value={newQuestion.question_text}
                     onChange={(e) => setNewQuestion({ ...newQuestion, question_text: e.target.value })}
                     rows={2}
+                    placeholder={'Multi-part questions: put each part on its own line.\nSolve the following:\na) 4/7 - 5/14'}
                   />
                 </Field>
+                {newQuestion.question_type === 'mcq' && (
+                  <Field label="Options">
+                    <McqOptionsEditor
+                      options={newQuestion.options}
+                      onChange={(options) => setNewQuestion({ ...newQuestion, options })}
+                    />
+                  </Field>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Marks">
                     <Input
@@ -407,7 +451,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                     onClick={() => {
                       setShowAddQuestion(false)
                       setAddQuestionError(null)
-                      setNewQuestion({ question_text: '', marks: '', chapter: '' })
+                      setNewQuestion({ question_text: '', marks: '', chapter: '', question_type: 'short', options: [] })
                     }}
                   >
                     Cancel

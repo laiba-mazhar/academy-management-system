@@ -6,15 +6,10 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { QuestionImport } from '@/components/QuestionImport'
+import { McqOptionsEditor } from '@/components/McqOptionsEditor'
+import { QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import type { Class, Question, QuestionType, Subject } from '@/types/database'
 
-const TYPE_LABELS: Record<QuestionType, string> = {
-  mcq: 'MCQ',
-  short: 'Short',
-  long: 'Long',
-  fill_blank: 'Fill in the blank',
-  true_false: 'True / False',
-}
 
 export function QuestionBankPage() {
   const { show } = useToast()
@@ -172,7 +167,7 @@ export function QuestionBankPage() {
           className="max-w-[12rem]"
         >
           <option value="all">All types</option>
-          {(Object.keys(TYPE_LABELS) as QuestionType[]).map((t) => (
+          {QUESTION_TYPES.map((t) => (
             <option key={t} value={t}>
               {TYPE_LABELS[t]}
             </option>
@@ -248,7 +243,7 @@ export function QuestionBankPage() {
                 value={form.question_type}
                 onChange={(e) => setForm({ ...form, question_type: e.target.value as QuestionType })}
               >
-                {(Object.keys(TYPE_LABELS) as QuestionType[]).map((t) => (
+                {QUESTION_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {TYPE_LABELS[t]}
                   </option>
@@ -264,44 +259,10 @@ export function QuestionBankPage() {
             </Field>
             {form.question_type === 'mcq' && (
               <Field label="Options">
-                <div className="space-y-1">
-                  {form.options.map((option, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="w-5 shrink-0 text-center text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        {option.key}
-                      </span>
-                      <Input
-                        value={option.text}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            options: form.options.map((o, j) => (j === i ? { ...o, text: e.target.value } : o)),
-                          })
-                        }
-                      />
-                      <button
-                        onClick={() => setForm({ ...form, options: form.options.filter((_, j) => j !== i) })}
-                        className="shrink-0 text-xs text-red-600 hover:underline dark:text-red-400"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    onClick={() =>
-                      setForm({
-                        ...form,
-                        options: [
-                          ...form.options,
-                          { key: String.fromCharCode(65 + form.options.length), text: '' },
-                        ],
-                      })
-                    }
-                    className="text-xs text-brand-600 hover:underline dark:text-gold-400"
-                  >
-                    + Add option
-                  </button>
-                </div>
+                <McqOptionsEditor
+                  options={form.options}
+                  onChange={(options) => setForm({ ...form, options })}
+                />
               </Field>
             )}
             <Field label="Marks">

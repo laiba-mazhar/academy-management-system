@@ -6,15 +6,9 @@ import { Modal } from '@/components/ui/Modal'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { extractPdfText, ScannedPdfError } from '@/lib/pdfText'
 import { dedupeKey, parseQuestions, type DraftQuestion } from '@/lib/questionParser'
+import { QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
+import { McqOptionsEditor } from '@/components/McqOptionsEditor'
 import type { Class, Question, QuestionType, Subject } from '@/types/database'
-
-const TYPE_LABELS: Record<QuestionType, string> = {
-  mcq: 'MCQ',
-  short: 'Short',
-  long: 'Long',
-  fill_blank: 'Fill in the blank',
-  true_false: 'True / False',
-}
 
 const TYPE_BADGE: Record<QuestionType, string> = {
   mcq: 'bg-brand-50 text-brand-700 ring-brand-600/20 dark:bg-brand-900/40 dark:text-brand-200',
@@ -327,7 +321,7 @@ export function QuestionImport({
                 onChange={(e) => e.target.value && applyToSelected({ questionType: e.target.value as QuestionType })}
               >
                 <option value="">Set type…</option>
-                {(Object.keys(TYPE_LABELS) as QuestionType[]).map((t) => (
+                {QUESTION_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {TYPE_LABELS[t]}
                   </option>
@@ -405,7 +399,7 @@ function DraftRow({
                 value={draft.questionType}
                 onChange={(e) => onChange({ questionType: e.target.value as QuestionType })}
               >
-                {(Object.keys(TYPE_LABELS) as QuestionType[]).map((t) => (
+                {QUESTION_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {TYPE_LABELS[t]}
                   </option>
@@ -459,43 +453,7 @@ function DraftRow({
           />
 
           {draft.questionType === 'mcq' && (
-            <div className="space-y-1">
-              {draft.options.map((option, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <span className="w-6 shrink-0 text-center text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    {option.key}
-                  </span>
-                  <div className="flex-1">
-                    <Input
-                      value={option.text}
-                      onChange={(e) => {
-                        const options = draft.options.map((o, j) => (j === i ? { ...o, text: e.target.value } : o))
-                        onChange({ options })
-                      }}
-                    />
-                  </div>
-                  <button
-                    onClick={() => onChange({ options: draft.options.filter((_, j) => j !== i) })}
-                    className="shrink-0 text-xs text-red-600 hover:underline dark:text-red-400"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() =>
-                  onChange({
-                    options: [
-                      ...draft.options,
-                      { key: String.fromCharCode(65 + draft.options.length), text: '' },
-                    ],
-                  })
-                }
-                className="text-xs text-brand-600 hover:underline dark:text-gold-400"
-              >
-                + Add option
-              </button>
-            </div>
+            <McqOptionsEditor options={draft.options} onChange={(options) => onChange({ options })} />
           )}
         </div>
       </div>
