@@ -116,6 +116,8 @@ export interface Exam {
   class_id: string
   exam_date: string
   total_marks: number
+  /** Allowed time, printed as "TIME 1 HOUR" on the paper header. */
+  duration_minutes: number | null
   created_by: string | null
   created_at: string
 }

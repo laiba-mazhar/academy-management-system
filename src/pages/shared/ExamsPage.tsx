@@ -15,7 +15,7 @@ export function ExamsPage() {
   const [classes, setClasses] = useState<Class[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', subject_id: '', exam_date: '', total_marks: '100' })
+  const [form, setForm] = useState({ name: '', subject_id: '', exam_date: '', total_marks: '100', duration_minutes: '60' })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -42,7 +42,7 @@ export function ExamsPage() {
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
 
   function openCreate() {
-    setForm({ name: '', subject_id: subjects[0]?.id ?? '', exam_date: '', total_marks: '100' })
+    setForm({ name: '', subject_id: subjects[0]?.id ?? '', exam_date: '', total_marks: '100', duration_minutes: '60' })
     setError(null)
     setShowForm(true)
   }
@@ -57,6 +57,12 @@ export function ExamsPage() {
       setError('Total marks must be a positive number.')
       return
     }
+    // Blank is allowed — the paper just leaves the TIME line off.
+    const duration = form.duration_minutes.trim() === '' ? null : Number(form.duration_minutes)
+    if (duration !== null && (Number.isNaN(duration) || duration <= 0)) {
+      setError('Duration must be a positive number of minutes, or left blank.')
+      return
+    }
     const subject = subjectById.get(form.subject_id)
     if (!subject) {
       setError('Pick a valid subject.')
@@ -69,6 +75,7 @@ export function ExamsPage() {
       class_id: subject.class_id,
       exam_date: form.exam_date,
       total_marks: totalMarks,
+      duration_minutes: duration,
     })
     setSaving(false)
     if (error) {
@@ -154,6 +161,15 @@ export function ExamsPage() {
             </Field>
             <Field label="Exam date">
               <Input type="date" value={form.exam_date} onChange={(e) => setForm({ ...form, exam_date: e.target.value })} />
+            </Field>
+            <Field label="Duration (minutes)">
+              <Input
+                type="number"
+                min="1"
+                placeholder="60"
+                value={form.duration_minutes}
+                onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })}
+              />
             </Field>
             <Field label="Total marks">
               <Input

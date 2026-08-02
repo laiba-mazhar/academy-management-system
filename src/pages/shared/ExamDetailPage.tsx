@@ -4,9 +4,11 @@ import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Textarea } from '@/components/ui/Input'
-import { DocumentLetterhead } from '@/components/DocumentLetterhead'
+import { ExamPaperPrintTarget, ExamPaperSheet } from '@/components/ExamPaperSheet'
 import { formatDate, formatDateTime, percentage, toPakistaniMsisdn } from '@/lib/utils'
 import { edgeFunctionError, friendlyError } from '@/lib/errors'
+import { downloadQuestionPaperPdf } from '@/lib/pdf'
+import type { QuestionPaper } from '@/lib/examPaper'
 import type { Class, Exam, ExamQuestion, ExamResult, Question, Student, Subject } from '@/types/database'
 
 export function ExamDetailPage({ basePath }: { basePath: string }) {
@@ -30,6 +32,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   const [newQuestion, setNewQuestion] = useState({ question_text: '', marks: '', chapter: '' })
   const [addQuestionError, setAddQuestionError] = useState<string | null>(null)
   const [addingQuestion, setAddingQuestion] = useState(false)
+  const [downloadingPaper, setDownloadingPaper] = useState(false)
 
   const marksDirty = JSON.stringify(results) !== JSON.stringify(savedResults)
 
@@ -297,6 +300,28 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     .filter((q) => selectedQuestionIds.has(q.id))
     .sort((a, b) => (a.chapter ?? '').localeCompare(b.chapter ?? ''))
 
+  // The single description of the paper, handed to both the on-screen sheet
+  // and the PDF writer so the download can never drift from the preview.
+  const paper: QuestionPaper = {
+    examName: exam?.name ?? '',
+    className: klass?.name ?? '',
+    subjectName: subject?.name ?? '',
+    totalMarks: exam?.total_marks ?? 0,
+    durationMinutes: exam?.duration_minutes ?? null,
+    questions: selectedQuestions,
+  }
+
+  async function handleDownloadPaper() {
+    setDownloadingPaper(true)
+    try {
+      await downloadQuestionPaperPdf(paper)
+    } catch (err) {
+      show(friendlyError(err instanceof Error ? err.message : 'Could not build the PDF.'), 'error')
+    } finally {
+      setDownloadingPaper(false)
+    }
+  }
+
   if (loading || !exam) {
     return <p className="text-slate-400 dark:text-slate-500">Loading...</p>
   }
@@ -427,36 +452,25 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
           </div>
 
           <div>
-            <div className="no-print mb-2 flex justify-end">
+            <div className="no-print mb-2 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => window.print()}>
                 Print Paper
               </Button>
+              <Button onClick={handleDownloadPaper} disabled={downloadingPaper}>
+                {downloadingPaper ? 'Preparing...' : 'Download PDF'}
+              </Button>
             </div>
-            <div className="print-area rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6">
-              <DocumentLetterhead subtitle="Examination Paper" />
-              <div className="mb-4 flex justify-between text-sm">
-                <span>Class: {klass?.name}</span>
-                <span>Subject: {subject?.name}</span>
+            {/* The preview shrinks the sheet with `zoom` rather than a
+                transform, because zoom collapses the layout box with it — a
+                scaled sheet would leave a page-height hole below itself. */}
+            <div className="no-print overflow-x-auto rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-700 dark:bg-slate-900">
+              <div className="exam-paper-zoom">
+                <div className="shadow-lg">
+                  <ExamPaperSheet paper={paper} />
+                </div>
               </div>
-              <div className="mb-6 flex justify-between text-sm">
-                <span>Date: {formatDate(exam.exam_date)}</span>
-                <span>Total Marks: {exam.total_marks}</span>
-              </div>
-              {selectedQuestions.length === 0 ? (
-                <p className="text-sm text-slate-400 dark:text-slate-500">No questions selected yet.</p>
-              ) : (
-                <ol className="list-decimal space-y-3 pl-5 text-sm">
-                  {selectedQuestions.map((q) => (
-                    <li key={q.id}>
-                      <div className="flex justify-between gap-4">
-                        <span>{q.question_text}</span>
-                        <span className="shrink-0 text-slate-500 dark:text-slate-400">[{q.marks}]</span>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              )}
             </div>
+            <ExamPaperPrintTarget paper={paper} />
           </div>
         </div>
       ) : (

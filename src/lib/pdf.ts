@@ -5,6 +5,17 @@ import { formatDate } from '@/lib/utils'
 // the main bundle until this function is actually called. The logo is also
 // imported dynamically alongside them so its base64 payload never lands in
 // the main bundle either.
+import {
+  formatDuration,
+  parseQuestionText,
+  RULE_BLUE,
+  SCHOOL_ADDRESS,
+  SCHOOL_NAME,
+  SCHOOL_TAGLINE,
+  TAGLINE_NAVY,
+  type QuestionPaper,
+} from '@/lib/examPaper'
+
 const LOGO_WIDTH_MM = 16
 const LOGO_ASPECT = 512 / 461 // width / height of the source logo asset
 
@@ -163,4 +174,169 @@ export async function buildMonthlyReportPdfBase64(params: {
 
   const dataUri = doc.output('datauristring')
   return dataUri.slice(dataUri.indexOf('base64,') + 'base64,'.length)
+}
+
+// ---------------------------------------------------------------------------
+// Question paper
+//
+// Laid out in points against A4, matching the Word letterhead the school
+// already hands out: crest top-left, the rule under the tagline, the four-cell
+// particulars grid and a washed-out crest behind the questions. Coordinates
+// below are the measured positions from that reference paper, which is why
+// they are concrete numbers rather than a margin/gap system.
+// ---------------------------------------------------------------------------
+const PAGE_W = 595.28
+const PAGE_H = 841.89
+const CENTER = PAGE_W / 2
+const BODY_LEFT = 14
+const BODY_RIGHT = 581.3
+const BODY_BOTTOM = PAGE_H - 42
+
+// Particulars grid: four cells per row, label / value / label / value.
+const GRID_COLS = [13.9, 85.9, 267, 383.2, 581.3]
+const GRID_TOP = 135.7
+const GRID_ROW_H = 17.4
+
+const QUESTION_TOP = 205
+const LINE_H = 19
+const BLOCK_GAP = 10
+const PART_MARKER_X = 32
+const PART_TEXT_X = 50
+
+type Doc = import('jspdf').jsPDF
+
+function drawWatermark(doc: Doc, logo: string) {
+  // Behind everything, so it goes down before any text on the page. The crest
+  // is knocked back far enough to read through — the questions have to stay
+  // legible on a photocopy.
+  const w = 520
+  const h = w / LOGO_ASPECT
+  doc.saveGraphicsState()
+  doc.setGState(new (doc as unknown as { GState: new (o: { opacity: number }) => never }).GState({ opacity: 0.1 }))
+  doc.addImage(logo, 'PNG', CENTER - w / 2, 190, w, h)
+  doc.restoreGraphicsState()
+}
+
+function drawLetterhead(doc: Doc, logo: string) {
+  const logoH = 63
+  doc.addImage(logo, 'PNG', 17.8, 42, logoH * LOGO_ASPECT, logoH)
+
+  doc.setTextColor(0)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(18)
+  doc.text(SCHOOL_NAME, CENTER, 68, { align: 'center' })
+
+  // The tagline is the one serif line on the sheet; keeping it distinct from
+  // the sans everywhere else is what makes the letterhead recognisable.
+  doc.setFont('times', 'normal')
+  doc.setFontSize(16)
+  doc.setTextColor(TAGLINE_NAVY)
+  doc.text(SCHOOL_TAGLINE, CENTER, 87, { align: 'center' })
+
+  doc.setDrawColor(RULE_BLUE)
+  doc.setLineWidth(1)
+  doc.line(100, 94, BODY_RIGHT, 94)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(0)
+  doc.text(SCHOOL_ADDRESS, CENTER, 106, { align: 'center' })
+}
+
+function drawParticulars(doc: Doc, paper: QuestionPaper) {
+  const duration = formatDuration(paper.durationMinutes)
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(0)
+  if (duration) doc.text(`TIME ${duration}`, BODY_LEFT, 131.5)
+  doc.text(paper.examName, CENTER, 131.5, { align: 'center' })
+  doc.text(`TOTAL MARKS ${paper.totalMarks}`, BODY_RIGHT, 131.5, { align: 'right' })
+
+  const rows: [string, string, string, string][] = [
+    ['NAME', '', 'CLASS', paper.className],
+    ['ROLL NO', '', 'DATE', ''],
+    ['SUBJECT', paper.subjectName, 'SUBJECT TEACHER', ''],
+  ]
+
+  doc.setDrawColor(0)
+  doc.setLineWidth(0.5)
+  const gridBottom = GRID_TOP + GRID_ROW_H * rows.length
+  for (let i = 0; i <= rows.length; i++) {
+    const y = GRID_TOP + GRID_ROW_H * i
+    doc.line(GRID_COLS[0], y, GRID_COLS[4], y)
+  }
+  for (const x of GRID_COLS) doc.line(x, GRID_TOP, x, gridBottom)
+
+  rows.forEach((row, i) => {
+    const y = GRID_TOP + GRID_ROW_H * i + 12.3
+    row.forEach((cell, col) => {
+      if (!cell) return
+      // Labels sit a step smaller than the answers written beside them.
+      doc.setFontSize(col % 2 === 0 ? 10 : 11.5)
+      doc.text(cell, GRID_COLS[col] + 6, y)
+    })
+  })
+}
+
+export async function downloadQuestionPaperPdf(paper: QuestionPaper) {
+  const [{ default: jsPDF }, { MAKTAB_LOGO_BASE64 }] = await Promise.all([
+    import('jspdf'),
+    import('@/assets/maktabLogoBase64'),
+  ])
+
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+  drawWatermark(doc, MAKTAB_LOGO_BASE64)
+  drawLetterhead(doc, MAKTAB_LOGO_BASE64)
+  drawParticulars(doc, paper)
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(12)
+  doc.setTextColor(0)
+
+  let y = QUESTION_TOP
+  const stemWidth = BODY_RIGHT - BODY_LEFT
+  const partWidth = BODY_RIGHT - PART_TEXT_X
+
+  function newPageIfNeeded(needed: number) {
+    if (y + needed <= BODY_BOTTOM) return
+    doc.addPage()
+    drawWatermark(doc, MAKTAB_LOGO_BASE64)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.setTextColor(0)
+    y = 60
+  }
+
+  paper.questions.forEach((question, index) => {
+    const { stem, parts } = parseQuestionText(question.question_text)
+    const stemLines = doc.splitTextToSize(`Qno: ${index + 1}  ${stem}`, stemWidth) as string[]
+
+    newPageIfNeeded(stemLines.length * LINE_H)
+    for (const line of stemLines) {
+      doc.text(line, BODY_LEFT, y)
+      y += LINE_H
+    }
+
+    if (parts.length > 0) {
+      y += BLOCK_GAP // a visible step down from the stem into its sub-parts
+      for (const part of parts) {
+        const partLines = doc.splitTextToSize(part.text, partWidth) as string[]
+        newPageIfNeeded(partLines.length * LINE_H)
+        doc.text(part.marker, PART_MARKER_X, y)
+        partLines.forEach((line, i) => {
+          doc.text(line, PART_TEXT_X, y + i * LINE_H)
+        })
+        y += partLines.length * LINE_H
+      }
+    }
+
+    y += BLOCK_GAP
+  })
+
+  const safeName = `${paper.examName}-${paper.subjectName}-${paper.className}`
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '_')
+  doc.save(`${safeName || 'question-paper'}.pdf`)
 }

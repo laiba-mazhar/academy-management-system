@@ -19,6 +19,26 @@
   --tooltip-cursor: rgba(217, 144, 154, 0.12);
 }
 
+/* The print-only copy of the exam paper (see ExamPaperPrintTarget). */
+.exam-paper-print {
+  display: none;
+}
+
+/* The exam paper preview is a real A4 sheet (210mm wide), too wide for the
+   editor column beside it. `zoom` shrinks the layout box along with the
+   pixels, so the surrounding page closes up around the smaller sheet — a
+   `transform: scale` would leave a sheet-sized hole underneath it. Print
+   resets it to 1 so the paper goes to the printer at true size. */
+.exam-paper-zoom {
+  zoom: 0.62;
+}
+
+@media (min-width: 640px) {
+  .exam-paper-zoom {
+    zoom: 0.74;
+  }
+}
+
 /* iOS Safari auto-zooms the page when a focused input's font-size is below
    16px. Tailwind's text-sm (14px) is used on most form fields for visual
    sizing, so this overrides just the font-size on small screens rather than
@@ -151,6 +171,64 @@
     break-inside: avoid;
     page-break-inside: avoid;
     border: 1px solid #a9b6e6 !important;
+  }
+
+  /* An exam paper is on screen: it prints from its own portal in normal flow
+     so it can paginate, and every other top-level child leaves the layout
+     rather than merely turning invisible. */
+  body.has-exam-paper {
+    height: auto;
+    overflow: visible;
+  }
+
+  body.has-exam-paper > *:not(.exam-paper-print) {
+    display: none !important;
+  }
+
+  .exam-paper-print {
+    display: block;
+  }
+
+  .exam-paper-print,
+  .exam-paper-print * {
+    visibility: visible;
+  }
+
+  .exam-paper-zoom {
+    zoom: 1;
+  }
+
+  /* Chromium repaints a fixed-position box on every printed sheet, which is
+     exactly what a watermark wants — in normal flow it would only appear
+     once, at the top of page one. */
+  .exam-watermark {
+    position: fixed;
+    top: 55mm;
+    left: 50%;
+    width: 165mm;
+  }
+
+  /* On screen the sheet is a literal 210mm page so the preview shows its true
+     proportions. On paper the printable area is already inset by the @page
+     margin above, so the sheet drops its own width and padding and simply
+     fills what the printer gives it. Font sizes stay in pt either way, so the
+     text prints at the same physical size the preview showed.
+     (A named @page with a tighter margin was the obvious alternative, but
+     Chromium ignores `page:` on the fixed-positioned .print-area, so the
+     sheet silently overflowed the sheet edge.) */
+  .exam-paper {
+    width: 100% !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Never split a question across a page boundary — half a question at the
+     foot of a sheet is the kind of thing that gets noticed in an exam hall. */
+  .exam-paper li {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .no-print {
