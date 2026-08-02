@@ -139,10 +139,15 @@ export function BarcodeCamera({
   }, [deviceId])
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5 dark:border-slate-700/60">
-        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          {starting ? 'Starting camera...' : 'Camera ready — hold the card up to the lens'}
+        <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              starting ? 'bg-amber-400 motion-safe:animate-pulse' : 'bg-green-500'
+            }`}
+          />
+          {starting ? 'Starting camera…' : 'Camera ready — hold the card up to the lens'}
         </p>
         <div className="flex items-center gap-2">
           {devices.length > 1 && (
@@ -150,7 +155,7 @@ export function BarcodeCamera({
               value={deviceId}
               onChange={(e) => setDeviceId(e.target.value)}
               aria-label="Camera"
-              className="max-w-[190px] rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-cream-50"
+              className="max-w-[190px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 transition-colors hover:border-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:border-slate-600 dark:bg-slate-900 dark:text-cream-50"
             >
               <option value="">Default camera</option>
               {devices.map((d, i) => (
@@ -162,7 +167,7 @@ export function BarcodeCamera({
           )}
           <button
             onClick={onStop}
-            className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
           >
             Stop camera
           </button>
