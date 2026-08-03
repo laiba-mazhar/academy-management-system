@@ -1,4 +1,4 @@
-import type { QuestionOption, QuestionType } from '@/types/database'
+import type { ExamPart, QuestionOption, QuestionType } from '@/types/database'
 
 // Shared definition of a Maktab question paper, so the on-screen preview, the
 // browser print output and the downloaded PDF all describe the same document
@@ -71,6 +71,22 @@ export interface PaperQuestion {
   question_text: string
   question_type?: QuestionType
   options?: QuestionOption[] | null
+  marks?: number
+  /** Sub-parts to print, as indexes into the parsed parts. Null = all. */
+  partIndexes?: number[] | null
+}
+
+export interface PaperSection {
+  title: string
+  instruction: string | null
+  /** Attempt-any-N. Null means every question must be attempted. */
+  chooseCount: number | null
+  questions: PaperQuestion[]
+}
+
+export interface PaperPart {
+  part: ExamPart
+  sections: PaperSection[]
 }
 
 export interface QuestionPaper {
@@ -79,5 +95,50 @@ export interface QuestionPaper {
   subjectName: string
   totalMarks: number
   durationMinutes: number | null
-  questions: PaperQuestion[]
+  parts: PaperPart[]
+}
+
+export const PART_LABELS: Record<ExamPart, string> = {
+  objective: 'OBJECTIVE PART',
+  subjective: 'SUBJECTIVE PART',
+}
+
+// The sub-parts a paper actually prints for a question. A teacher can put
+// question 4 on the paper with only parts (a) and (c) of the four in the bank.
+export function visibleParts(question: PaperQuestion): QuestionPart[] {
+  const { parts } = parseQuestionText(question.question_text)
+  if (!question.partIndexes) return parts
+  const wanted = new Set(question.partIndexes)
+  return parts.filter((_, i) => wanted.has(i))
+}
+
+// What a section contributes to the paper total. With "attempt any six of
+// nine" a student can only earn the six best-marked ones, so counting all
+// nine would overstate the paper by a third.
+export function sectionMarks(section: PaperSection): number {
+  const marks = section.questions.map((q) => q.marks ?? 0)
+  if (section.chooseCount === null) return marks.reduce((sum, m) => sum + m, 0)
+  return [...marks]
+    .sort((a, b) => b - a)
+    .slice(0, section.chooseCount)
+    .reduce((sum, m) => sum + m, 0)
+}
+
+export function paperMarks(parts: PaperPart[]): number {
+  return parts.reduce(
+    (sum, part) => sum + part.sections.reduce((s, section) => s + sectionMarks(section), 0),
+    0
+  )
+}
+
+/** Continuous 1..N numbering across the whole paper, section headings aside. */
+export function numberedQuestions(parts: PaperPart[]): Map<PaperQuestion, number> {
+  const numbers = new Map<PaperQuestion, number>()
+  let n = 0
+  for (const part of parts) {
+    for (const section of part.sections) {
+      for (const question of section.questions) numbers.set(question, ++n)
+    }
+  }
+  return numbers
 }

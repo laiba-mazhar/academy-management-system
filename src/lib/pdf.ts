@@ -7,7 +7,10 @@ import { formatDate } from '@/lib/utils'
 // the main bundle either.
 import {
   formatDuration,
+  numberedQuestions,
   parseQuestionText,
+  PART_LABELS,
+  visibleParts,
   RULE_BLUE,
   SCHOOL_ADDRESS,
   SCHOOL_NAME,
@@ -205,6 +208,42 @@ const PART_TEXT_X = 50
 
 type Doc = import('jspdf').jsPDF
 
+// jsPDF's built-in fonts are WinAnsi-encoded, so a character outside that set
+// comes out as mangled punctuation rather than as itself — "q ≠ 0" printed as
+// "q ''' 0". These are the symbols a maths or physics paper actually reaches
+// for; each maps to the ASCII a teacher would have typed anyway.
+//
+// The browser print path has no such limit, so Print Paper still reproduces
+// the original characters exactly.
+const WINANSI_FALLBACKS: [RegExp, string][] = [
+  [/≠/g, '!='],
+  [/≤/g, '<='],
+  [/≥/g, '>='],
+  [/≈/g, '~='],
+  [/√/g, 'sqrt'],
+  [/∞/g, 'infinity'],
+  [/∑/g, 'sum'],
+  [/∫/g, 'integral'],
+  [/∈/g, ' in '],
+  [/⇒/g, '=>'],
+  [/→/g, '->'],
+  [/↔/g, '<->'],
+  [/∴/g, 'therefore'],
+  [/∆|Δ/g, 'delta'],
+  [/π/g, 'pi'],
+  [/θ/g, 'theta'],
+  [/α/g, 'alpha'],
+  [/β/g, 'beta'],
+  [/γ/g, 'gamma'],
+  [/λ/g, 'lambda'],
+  [/σ/g, 'sigma'],
+  [/Ω/g, 'ohm'],
+]
+
+function pdfSafe(text: string): string {
+  return WINANSI_FALLBACKS.reduce((out, [re, replacement]) => out.replace(re, replacement), text)
+}
+
 function drawWatermark(doc: Doc, logo: string) {
   // Behind everything, so it goes down before any text on the page. The crest
   // is knocked back far enough to read through — the questions have to stay
@@ -308,43 +347,78 @@ export async function downloadQuestionPaperPdf(paper: QuestionPaper) {
     y = 60
   }
 
-  paper.questions.forEach((question, index) => {
-    const { stem, parts } = parseQuestionText(question.question_text)
-    const stemLines = doc.splitTextToSize(`Qno: ${index + 1}  ${stem}`, stemWidth) as string[]
+  const numbers = numberedQuestions(paper.parts)
 
-    newPageIfNeeded(stemLines.length * LINE_H)
-    for (const line of stemLines) {
-      doc.text(line, BODY_LEFT, y)
+  for (const part of paper.parts) {
+    // Only worth a banner when the paper has both halves, matching the sheet.
+    if (paper.parts.length > 1) {
+      newPageIfNeeded(LINE_H)
+      doc.setFontSize(11)
+      doc.text(PART_LABELS[part.part], CENTER, y, { align: 'center' })
+      doc.setFontSize(12)
       y += LINE_H
     }
 
-    const options = question.question_type === 'mcq' ? (question.options ?? []) : []
-    if (options.length > 0) {
-      // One wrapped row of choices, as they appear on a board paper.
-      const line = options.map((o) => `(${o.key.toLowerCase()}) ${o.text}`).join('    ')
-      const optionLines = doc.splitTextToSize(line, BODY_RIGHT - PART_TEXT_X) as string[]
-      newPageIfNeeded(optionLines.length * LINE_H)
-      for (const optionLine of optionLines) {
-        doc.text(optionLine, PART_TEXT_X, y)
-        y += LINE_H
+    for (const section of part.sections) {
+      // An untitled section is the implicit one holding unassigned questions,
+      // so it prints no heading — a paper built before sections existed looks
+      // exactly as it did.
+      if (section.title || section.instruction) {
+        newPageIfNeeded(LINE_H * 2)
+        doc.setFontSize(11)
+        if (section.title) doc.text(pdfSafe(section.title), BODY_LEFT, y)
+        if (section.instruction) doc.text(pdfSafe(section.instruction), BODY_RIGHT, y, { align: 'right' })
+        y += 4
+        doc.setLineWidth(0.5)
+        doc.setDrawColor(0)
+        doc.line(BODY_LEFT, y, BODY_RIGHT, y)
+        y += LINE_H - 2
+        doc.setFontSize(12)
+      }
+
+      for (const question of section.questions) {
+        const { stem } = parseQuestionText(question.question_text)
+        const parts = visibleParts(question)
+        const stemLines = doc.splitTextToSize(
+          pdfSafe(`Qno: ${numbers.get(question) ?? 0}  ${stem}`),
+          stemWidth
+        ) as string[]
+
+        newPageIfNeeded(stemLines.length * LINE_H)
+        for (const line of stemLines) {
+          doc.text(line, BODY_LEFT, y)
+          y += LINE_H
+        }
+
+        const options = question.question_type === 'mcq' ? (question.options ?? []) : []
+        if (options.length > 0) {
+          // One wrapped row of choices, as they appear on a board paper.
+          const line = pdfSafe(options.map((o) => `(${o.key.toLowerCase()}) ${o.text}`).join('    '))
+          const optionLines = doc.splitTextToSize(line, BODY_RIGHT - PART_TEXT_X) as string[]
+          newPageIfNeeded(optionLines.length * LINE_H)
+          for (const optionLine of optionLines) {
+            doc.text(optionLine, PART_TEXT_X, y)
+            y += LINE_H
+          }
+        }
+
+        if (parts.length > 0) {
+          y += BLOCK_GAP // a visible step down from the stem into its sub-parts
+          for (const subPart of parts) {
+            const partLines = doc.splitTextToSize(pdfSafe(subPart.text), partWidth) as string[]
+            newPageIfNeeded(partLines.length * LINE_H)
+            doc.text(subPart.marker, PART_MARKER_X, y)
+            partLines.forEach((line, i) => {
+              doc.text(line, PART_TEXT_X, y + i * LINE_H)
+            })
+            y += partLines.length * LINE_H
+          }
+        }
+
+        y += BLOCK_GAP
       }
     }
-
-    if (parts.length > 0) {
-      y += BLOCK_GAP // a visible step down from the stem into its sub-parts
-      for (const part of parts) {
-        const partLines = doc.splitTextToSize(part.text, partWidth) as string[]
-        newPageIfNeeded(partLines.length * LINE_H)
-        doc.text(part.marker, PART_MARKER_X, y)
-        partLines.forEach((line, i) => {
-          doc.text(line, PART_TEXT_X, y + i * LINE_H)
-        })
-        y += partLines.length * LINE_H
-      }
-    }
-
-    y += BLOCK_GAP
-  })
+  }
 
   const safeName = `${paper.examName}-${paper.subjectName}-${paper.className}`
     .replace(/[^\w\s-]/g, '')

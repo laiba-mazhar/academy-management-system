@@ -6,15 +6,17 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { ExamPaperPrintTarget, ExamPaperSheet } from '@/components/ExamPaperSheet'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
+import { PaperBuilder } from '@/components/PaperBuilder'
 import { QUESTION_TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import { formatDate, formatDateTime, percentage, toPakistaniMsisdn } from '@/lib/utils'
 import { edgeFunctionError, friendlyError } from '@/lib/errors'
 import { downloadQuestionPaperPdf } from '@/lib/pdf'
-import type { QuestionPaper } from '@/lib/examPaper'
+import { paperMarks, type PaperPart, type QuestionPaper } from '@/lib/examPaper'
 import type {
   Class,
   Exam,
   ExamQuestion,
+  ExamSection,
   ExamResult,
   Question,
   QuestionOption,
@@ -31,7 +33,8 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   const [subject, setSubject] = useState<Subject | null>(null)
   const [klass, setKlass] = useState<Class | null>(null)
   const [questions, setQuestions] = useState<Question[]>([])
-  const [selectedQuestionIds, setSelectedQuestionIds] = useState<Set<string>>(new Set())
+  const [examQuestions, setExamQuestions] = useState<ExamQuestion[]>([])
+  const [sections, setSections] = useState<ExamSection[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [results, setResults] = useState<Record<string, string>>({})
   const [savedResults, setSavedResults] = useState<Record<string, string>>({})
@@ -66,20 +69,20 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     const examRow = examRes.data as Exam
     setExam(examRow)
 
-    const [subjectRes, classRes, questionsRes, examQuestionsRes, studentsRes, resultsRes] = await Promise.all([
+    const [subjectRes, classRes, questionsRes, examQuestionsRes, sectionsRes, studentsRes, resultsRes] = await Promise.all([
       supabase.from('subjects').select('*').eq('id', examRow.subject_id).single(),
       supabase.from('classes').select('*').eq('id', examRow.class_id).single(),
       supabase.from('questions').select('*').eq('subject_id', examRow.subject_id),
       supabase.from('exam_questions').select('*').eq('exam_id', examId),
+      supabase.from('exam_sections').select('*').eq('exam_id', examId).order('position'),
       supabase.from('students').select('*').eq('class_id', examRow.class_id).eq('enrollment_status', 'enrolled'),
       supabase.from('exam_results').select('*').eq('exam_id', examId),
     ])
     if (subjectRes.data) setSubject(subjectRes.data as Subject)
     if (classRes.data) setKlass(classRes.data as Class)
     if (questionsRes.data) setQuestions(questionsRes.data as Question[])
-    if (examQuestionsRes.data) {
-      setSelectedQuestionIds(new Set((examQuestionsRes.data as ExamQuestion[]).map((eq) => eq.question_id)))
-    }
+    if (examQuestionsRes.data) setExamQuestions(examQuestionsRes.data as ExamQuestion[])
+    if (sectionsRes.data) setSections(sectionsRes.data as ExamSection[])
     if (studentsRes.data) setStudents(studentsRes.data as Student[])
     if (resultsRes.data) {
       const map: Record<string, string> = {}
@@ -116,46 +119,60 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     }
   }
 
-  const selectedMarksTotal = useMemo(
-    () => questions.filter((q) => selectedQuestionIds.has(q.id)).reduce((sum, q) => sum + q.marks, 0),
-    [questions, selectedQuestionIds]
-  )
+  // The paper's structure, assembled once from the sections and the rows that
+  // point at them. Both the preview and the PDF read this, so neither can
+  // disagree with what the builder shows.
+  const paperParts: PaperPart[] = useMemo(() => {
+    const bankById = new Map(questions.map((q) => [q.id, q]))
+    const rows = new Map<string | null, ExamQuestion[]>()
+    for (const row of examQuestions) {
+      const list = rows.get(row.section_id) ?? []
+      list.push(row)
+      rows.set(row.section_id, list)
+    }
+    for (const list of rows.values()) list.sort((a, b) => a.position - b.position)
+
+    const toQuestions = (list: ExamQuestion[]) =>
+      list.flatMap((row) => {
+        const q = bankById.get(row.question_id)
+        return q ? [{ ...q, marks: q.marks, partIndexes: row.part_indexes }] : []
+      })
+
+    const result: PaperPart[] = []
+    for (const part of ['objective', 'subjective'] as const) {
+      const built = sections
+        .filter((s) => s.part === part)
+        .sort((a, b) => a.position - b.position)
+        .map((s) => ({
+          title: s.title,
+          instruction: s.instruction,
+          chooseCount: s.choose_count,
+          questions: toQuestions(rows.get(s.id) ?? []),
+        }))
+        .filter((s) => s.questions.length > 0)
+      if (built.length > 0) result.push({ part, sections: built })
+    }
+
+    // Questions with no section still have to print. An empty title keeps a
+    // paper that predates sections looking exactly as it did.
+    const loose = toQuestions(rows.get(null) ?? [])
+    if (loose.length > 0) {
+      const subjective = result.find((p) => p.part === 'subjective')
+      const section = { title: '', instruction: null, chooseCount: null, questions: loose }
+      if (subjective) subjective.sections.push(section)
+      else result.push({ part: 'subjective', sections: [section] })
+    }
+    return result
+  }, [questions, sections, examQuestions])
+
+  // What the paper is actually worth. A section with a choice contributes only
+  // the questions a student can attempt, not every one printed.
+  const selectedMarksTotal = useMemo(() => paperMarks(paperParts), [paperParts])
 
   // Marks Entry stays reachable once results already exist, even if every
   // paper question later gets deselected — otherwise previously saved marks
   // become invisible without actually being deleted.
-  const hasPaperOrResults = selectedQuestionIds.size > 0 || Object.keys(savedResults).length > 0
-
-  async function toggleQuestion(question: Question) {
-    const wasSelected = selectedQuestionIds.has(question.id)
-
-    // Update synchronously first so a second rapid click reads the latest
-    // selection instead of a stale pre-network-call snapshot.
-    setSelectedQuestionIds((prev) => {
-      const next = new Set(prev)
-      if (wasSelected) next.delete(question.id)
-      else next.add(question.id)
-      return next
-    })
-
-    const { error } = wasSelected
-      ? await supabase.from('exam_questions').delete().eq('exam_id', examId!).eq('question_id', question.id)
-      : await supabase.from('exam_questions').insert({ exam_id: examId!, question_id: question.id })
-
-    if (error) {
-      // A duplicate-insert (23505) means another click already selected this
-      // question — treat that as success instead of reverting/erroring.
-      if (!wasSelected && error.code === '23505') return
-      show(error.message, 'error')
-      // Roll back the optimistic update since the write didn't actually happen.
-      setSelectedQuestionIds((prev) => {
-        const next = new Set(prev)
-        if (wasSelected) next.add(question.id)
-        else next.delete(question.id)
-        return next
-      })
-    }
-  }
+  const hasPaperOrResults = examQuestions.length > 0 || Object.keys(savedResults).length > 0
 
   // Lets a teacher add a question straight from the paper builder instead of
   // detouring to the Question Bank page. It's saved into the same questions
@@ -206,13 +223,13 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     setAddingQuestion(false)
     if (linkError) {
       show(
-        "Question added to the bank, but couldn't be selected onto this paper automatically — check the box next to it below.",
+        "Question added to the bank, but couldn't be put on this paper automatically — add it to a section below.",
         'error'
       )
       return
     }
-    setSelectedQuestionIds((prev) => new Set(prev).add(question.id))
     show('Question added to the bank and this paper.')
+    load()
   }
 
   async function handleSaveMarks() {
@@ -317,10 +334,6 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     else show(`Sent to ${result.sent} of ${result.total}. ${failed} could not be delivered — check their phone numbers.`, 'error')
   }
 
-  const selectedQuestions = questions
-    .filter((q) => selectedQuestionIds.has(q.id))
-    .sort((a, b) => (a.chapter ?? '').localeCompare(b.chapter ?? ''))
-
   // The single description of the paper, handed to both the on-screen sheet
   // and the PDF writer so the download can never drift from the preview.
   const paper: QuestionPaper = {
@@ -329,7 +342,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     subjectName: subject?.name ?? '',
     totalMarks: exam?.total_marks ?? 0,
     durationMinutes: exam?.duration_minutes ?? null,
-    questions: selectedQuestions,
+    parts: paperParts,
   }
 
   async function handleDownloadPaper() {
@@ -468,30 +481,17 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
             )}
             {questions.length === 0 ? (
               <p className="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
-                No questions in the bank for this subject yet. Add one above, or from the Question Bank page.
+                No questions in the bank for this subject yet. Add one above, or import a past paper from the
+                Question Bank page.
               </p>
             ) : (
-              <div className="space-y-2">
-                {questions.map((q) => (
-                  <label
-                    key={q.id}
-                    className="flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedQuestionIds.has(q.id)}
-                      onChange={() => toggleQuestion(q)}
-                      className="mt-1 h-4 w-4"
-                    />
-                    <span>
-                      {q.question_text}
-                      <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">
-                        ({q.marks} marks{q.chapter ? ` · ${q.chapter}` : ''})
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <PaperBuilder
+                examId={exam.id}
+                bank={questions}
+                sections={sections}
+                examQuestions={examQuestions}
+                onReload={load}
+              />
             )}
           </div>
 
@@ -519,10 +519,10 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
         </div>
       ) : (
         <div className="space-y-3">
-          {selectedQuestionIds.size === 0 && (
+          {examQuestions.length === 0 && (
             <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
-              No questions are currently selected for this paper — these are previously saved marks. Re-select the
-              exam's questions in the Exam Paper tab before you can save any changes here.
+              No questions are currently on this paper — these are previously saved marks. Rebuild the paper in the
+              Exam Paper tab before you can save any changes here.
             </p>
           )}
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">

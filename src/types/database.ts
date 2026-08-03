@@ -139,9 +139,28 @@ export interface Exam {
   created_at: string
 }
 
+export type ExamPart = 'objective' | 'subjective'
+
+export interface ExamSection {
+  id: string
+  exam_id: string
+  part: ExamPart
+  title: string
+  /** Printed under the title, e.g. "Attempt any SIX questions." */
+  instruction: string | null
+  /** Attempt-any-N. Null means every question must be attempted. */
+  choose_count: number | null
+  position: number
+  created_at: string
+}
+
 export interface ExamQuestion {
   exam_id: string
   question_id: string
+  section_id: string | null
+  position: number
+  /** Sub-parts to print, as indexes into the question's parts. Null = all. */
+  part_indexes: number[] | null
 }
 
 export interface ExamResult {
@@ -310,9 +329,15 @@ export interface Database {
         Update: Partial<Exam>
         Relationships: []
       }
+      exam_sections: {
+        Row: ExamSection
+        Insert: InsertOf<ExamSection, 'id' | 'part' | 'instruction' | 'choose_count' | 'position' | 'created_at'>
+        Update: Partial<ExamSection>
+        Relationships: []
+      }
       exam_questions: {
         Row: ExamQuestion
-        Insert: ExamQuestion
+        Insert: InsertOf<ExamQuestion, 'section_id' | 'position' | 'part_indexes'>
         Update: Partial<ExamQuestion>
         Relationships: []
       }
