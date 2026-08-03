@@ -3,12 +3,16 @@ import { createPortal } from 'react-dom'
 import logoUrl from '@/assets/maktab_logo_transparent.png'
 import {
   formatDuration,
+  numberedQuestions,
   parseQuestionText,
+  PART_LABELS,
   RULE_BLUE,
   SCHOOL_ADDRESS,
   SCHOOL_NAME,
   SCHOOL_TAGLINE,
   TAGLINE_NAVY,
+  visibleParts,
+  type PaperQuestion,
   type QuestionPaper,
 } from '@/lib/examPaper'
 
@@ -20,6 +24,8 @@ import {
 // printed size, and so `window.print()` needs no scaling to reproduce it.
 export function ExamPaperSheet({ paper }: { paper: QuestionPaper }) {
   const duration = formatDuration(paper.durationMinutes)
+  const numbers = numberedQuestions(paper.parts)
+  const hasQuestions = paper.parts.some((p) => p.sections.some((s) => s.questions.length > 0))
 
   return (
     <div
@@ -103,47 +109,91 @@ export function ExamPaperSheet({ paper }: { paper: QuestionPaper }) {
         </tbody>
       </table>
 
-      <ol className="relative list-none" style={{ marginTop: '4mm' }}>
-        {paper.questions.map((question, index) => {
-          const { stem, parts } = parseQuestionText(question.question_text)
-          const options = question.question_type === 'mcq' ? (question.options ?? []) : []
-          return (
-            <li key={index} className="font-bold" style={{ fontSize: '12pt', marginBottom: '3.5mm' }}>
-              <p style={{ lineHeight: 1.6 }}>
-                Qno: {index + 1}&nbsp;&nbsp;{stem}
-              </p>
-              {/* MCQ choices sit on one wrapped row, the way they are printed
-                  on a board paper rather than as a vertical list. */}
-              {options.length > 0 && (
-                <div className="flex flex-wrap" style={{ marginTop: '1.5mm', paddingLeft: '6mm', gap: '2mm 8mm' }}>
-                  {options.map((option) => (
-                    <span key={option.key} style={{ lineHeight: 1.5 }}>
-                      ({option.key.toLowerCase()}) {option.text}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {parts.length > 0 && (
-                <div style={{ marginTop: '2mm', paddingLeft: '6mm' }}>
-                  {parts.map((part, p) => (
-                    <p key={p} className="flex gap-2" style={{ lineHeight: 1.6 }}>
-                      <span className="shrink-0">{part.marker}</span>
-                      <span>{part.text}</span>
-                    </p>
-                  ))}
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ol>
+      {paper.parts.map((part) => (
+        <section key={part.part} className="relative" style={{ marginTop: '4mm' }}>
+          {/* A part heading only earns its space when the paper actually has
+              both halves — a subjective-only paper needs no "SUBJECTIVE PART"
+              banner over the only thing on the page. */}
+          {paper.parts.length > 1 && (
+            <p
+              className="text-center font-bold"
+              style={{ fontSize: '11pt', letterSpacing: '0.05em', marginBottom: '2mm' }}
+            >
+              {PART_LABELS[part.part]}
+            </p>
+          )}
 
-      {paper.questions.length === 0 && (
+          {part.sections.map((section, si) => (
+            <div key={si} style={{ marginBottom: '4mm' }}>
+              {/* An untitled section is the implicit one holding questions
+                  that were never assigned, so it prints no heading at all. */}
+              {(section.title || section.instruction) && (
+                <div
+                  className="flex flex-wrap items-baseline justify-between gap-x-4 border-b border-black"
+                  style={{ marginBottom: '2mm', paddingBottom: '0.8mm' }}
+                >
+                  <span className="font-bold" style={{ fontSize: '11pt' }}>
+                    {section.title}
+                  </span>
+                  {section.instruction && <span style={{ fontSize: '9.5pt' }}>{section.instruction}</span>}
+                </div>
+              )}
+
+              <ol className="list-none">
+                {section.questions.map((question) => (
+                  <PaperQuestionItem
+                    key={numbers.get(question)}
+                    question={question}
+                    number={numbers.get(question) ?? 0}
+                  />
+                ))}
+              </ol>
+            </div>
+          ))}
+        </section>
+      ))}
+
+      {!hasQuestions && (
         <p className="relative" style={{ fontSize: '11pt', marginTop: '6mm' }}>
           No questions selected yet.
         </p>
       )}
     </div>
+  )
+}
+
+function PaperQuestionItem({ question, number }: { question: PaperQuestion; number: number }) {
+  const { stem } = parseQuestionText(question.question_text)
+  const parts = visibleParts(question)
+  const options = question.question_type === 'mcq' ? (question.options ?? []) : []
+
+  return (
+    <li className="font-bold" style={{ fontSize: '12pt', marginBottom: '3.5mm' }}>
+      <p style={{ lineHeight: 1.6 }}>
+        Qno: {number}&nbsp;&nbsp;{stem}
+      </p>
+      {/* MCQ choices sit on one wrapped row, the way they are printed on a
+          board paper rather than as a vertical list. */}
+      {options.length > 0 && (
+        <div className="flex flex-wrap" style={{ marginTop: '1.5mm', paddingLeft: '6mm', gap: '2mm 8mm' }}>
+          {options.map((option) => (
+            <span key={option.key} style={{ lineHeight: 1.5 }}>
+              ({option.key.toLowerCase()}) {option.text}
+            </span>
+          ))}
+        </div>
+      )}
+      {parts.length > 0 && (
+        <div style={{ marginTop: '2mm', paddingLeft: '6mm' }}>
+          {parts.map((part, p) => (
+            <p key={p} className="flex gap-2" style={{ lineHeight: 1.6 }}>
+              <span className="shrink-0">{part.marker}</span>
+              <span>{part.text}</span>
+            </p>
+          ))}
+        </div>
+      )}
+    </li>
   )
 }
 
