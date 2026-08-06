@@ -1,4 +1,4 @@
-import type { ExamPart, QuestionOption, QuestionType } from '@/types/database'
+import type { Crop, ExamPart, QuestionOption, QuestionType } from '@/types/database'
 
 // Shared definition of a Maktab question paper, so the on-screen preview, the
 // browser print output and the downloaded PDF all describe the same document
@@ -66,6 +66,13 @@ export function formatDuration(minutes: number | null): string {
   return chunks.join(' ')
 }
 
+/** A question that is a picture of a book page rather than typed text. */
+export interface PaperSnip {
+  url: string | undefined
+  page: { width: number; height: number }
+  crop: Crop
+}
+
 /** Only the parts of a bank question that end up printed on the paper. */
 export interface PaperQuestion {
   question_text: string
@@ -74,6 +81,8 @@ export interface PaperQuestion {
   marks?: number
   /** Sub-parts to print, as indexes into the parsed parts. Null = all. */
   partIndexes?: number[] | null
+  /** Set when the question was snipped from a scanned book. */
+  snip?: PaperSnip | null
 }
 
 export interface PaperSection {

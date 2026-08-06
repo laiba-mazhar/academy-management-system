@@ -28,6 +28,44 @@ export interface ParseResult {
   drafts: DraftQuestion[]
   /** True when the document announced its own sections, i.e. a good parse. */
   sectionsFound: boolean
+  /** True when only the exercises of a textbook were taken. */
+  exercisesOnly: boolean
+}
+
+// A textbook is mostly not questions. Explanation, worked examples and
+// definitions all sit above the exercise that actually asks something, and
+// importing a chapter wholesale drags them in.
+//
+// So when a document announces exercises, only the exercises are read. A past
+// paper announces none, and is read whole exactly as before — which is what
+// keeps this from changing the case that already worked.
+const EXERCISE_START = /^\s*(?:review\s+|practice\s+|unit\s+)?(?:exercise|exercises|worksheet)\b|^\s*مشق/i
+// "2.4 Adding Rational Numbers" — a numbered chapter heading, not a question,
+// which "4." at the start of a line would otherwise look like.
+const SECTION_HEADING = /^\s*\d+\.\d+(?:\.\d+)?\s+\p{L}/u
+// Prose blocks a textbook puts between exercises.
+const PROSE_BLOCK =
+  /^\s*(example|solution|summary|activity|key\s*points?|note|remember|definition|introduction|objectives)\b/i
+
+function keepExercisesOnly(lines: string[]): { lines: string[]; filtered: boolean } {
+  const startsAt = lines.findIndex((l) => EXERCISE_START.test(l))
+  if (startsAt === -1) return { lines, filtered: false }
+
+  const kept: string[] = []
+  let inExercise = false
+  for (const line of lines) {
+    if (EXERCISE_START.test(line)) {
+      inExercise = true
+      continue // the heading itself is not a question
+    }
+    // A chapter heading or a worked example closes the exercise above it.
+    if (inExercise && (SECTION_HEADING.test(line) || PROSE_BLOCK.test(line))) {
+      inExercise = false
+      continue
+    }
+    if (inExercise) kept.push(line)
+  }
+  return { lines: kept, filtered: true }
 }
 
 // "SECTION A", "OBJECTIVE", "Short Questions" … A paper that labels its own
@@ -60,12 +98,35 @@ const OPTION_LETTER = /^\s*\(?([a-hA-H]|i{1,3}v?|iv|v)\)\s*(.*)$/
 // "1)" / "2." as a sub-part. Only consulted when bare numbers are not
 // starting questions, otherwise every question would swallow the next one.
 const OPTION_NUMBER = /^\s*\(?(\d{1,2})[).]\s*(.+)$/
-// Several options crammed onto one line: "(a) 4  (b) 5  (c) 6  (d) 7".
-const INLINE_OPTIONS = /\(?\b([a-hA-H])\)\s*/g
+// Markers sharing a line, either as MCQ choices — "(a) 4 (b) 5 (c) 6 (d) 7" —
+// or as sub-questions a PDF has run together: "i) Why …? (ii) Why …?". Roman
+// numerals are included because that is how sub-questions are usually lettered.
+const INLINE_MARKERS = /(?:^|\s)\(?((?:i{1,3}v?|iv|vi{0,3}|ix|xi{0,3}|x|[a-hA-H]))\)\s+/gi
 // A trailing "(5)" / "[2 marks]".
 const TRAILING_MARKS = /[([]\s*(\d+(?:\.\d+)?)\s*(?:marks?)?\s*[)\]]\s*$/i
 // "Attempt any six questions" — an instruction, not a question.
 const INSTRUCTION = /^\s*(attempt|answer)\s+(any|all)\b/i
+// "Name: Roll#: Class: Inter Part-II Subject: English-12 Date: Time:" — the
+// particulars strip off the top of a paper. Several "Label:" pairs on one line
+// is what distinguishes it from a question that merely contains a colon, and
+// matching on that rather than on position means it is dropped even when a PDF
+// holds several papers back to back, each with its own header.
+const PARTICULARS = /(?:\b[A-Za-z#]+\s*:\s*){3,}/
+// The same strip when a PDF puts each field on its own line — "Name:",
+// "Roll#:", "Class: Inter Part-II". One or two words before the colon is what
+// separates a form label from a stem: "Solve the following:" has three.
+const FORM_FIELD = /^([^:]{1,24}):\s*\S{0,24}$/
+// "(3x2=6)" — three parts worth two marks each. The per-part figure is what a
+// split sub-question should carry.
+const MARKS_PRODUCT = /\(\s*(\d{1,2})\s*[x×*]\s*(\d+(?:\.\d+)?)\s*=\s*\d+(?:\.\d+)?\s*\)/i
+// A stem whose only job is to introduce its sub-parts. When the parts are
+// split out, nothing of value is lost by dropping it.
+const DIRECTIVE_STEM = /\b(answer|attempt|solve|do|write)\b.{0,40}\b(given|following|these)\b/i
+
+function isFormField(line: string): boolean {
+  const match = FORM_FIELD.exec(line)
+  return match !== null && match[1].trim().split(/\s+/).length <= 2
+}
 
 function normalise(raw: string): string[] {
   return raw
@@ -91,8 +152,14 @@ function isSectionHeader(line: string): boolean {
 }
 
 function splitInlineOptions(line: string): QuestionOption[] | null {
-  const markers = [...line.matchAll(INLINE_OPTIONS)]
-  if (markers.length < 3) return null
+  const markers = [...line.matchAll(INLINE_MARKERS)]
+  if (markers.length === 0) return null
+
+  // Three or more is unambiguous. Two is only trusted when the line opens with
+  // a marker — that is a list, whereas prose merely mentioning "(a) or (b)"
+  // does not start with one.
+  const opensWithMarker = markers[0].index === 0
+  if (markers.length < 3 && !(markers.length === 2 && opensWithMarker)) return null
 
   const options: QuestionOption[] = []
   markers.forEach((m, i) => {
@@ -101,7 +168,24 @@ function splitInlineOptions(line: string): QuestionOption[] | null {
     const text = line.slice(start, end).trim()
     if (text) options.push({ key: m[1].toUpperCase(), text })
   })
-  return options.length >= 3 ? options : null
+  return options.length >= 2 ? options : null
+}
+
+// Splitting suits sub-parts that are whole questions ("Why is the universe so
+// frightening?"). It does not suit the parts of a maths question — "4/7 - 5/14"
+// on its own has lost the "Solve" that gave it meaning. Length and a question
+// mark separate the two reliably.
+function partsLookLikeQuestions(options: QuestionOption[]): boolean {
+  const questionMarks = options.filter((o) => o.text.trim().endsWith('?')).length
+  const meanLength = options.reduce((sum, o) => sum + o.text.length, 0) / options.length
+  return questionMarks >= options.length / 2 || meanLength >= 25
+}
+
+// "i) ii) iii)" numbers sub-questions; "a) b) c) d)" offers alternatives. A
+// roman sequence is never a set of MCQ choices, and treating it as one both
+// mistyped the question and threw its sub-parts away.
+function isRomanSequence(options: QuestionOption[]): boolean {
+  return options.some((o) => /^(?:II|III|IV|VI{0,3}|IX)$/i.test(o.key))
 }
 
 // MCQ choices are a handful of short alternatives. Sub-parts of a maths
@@ -109,6 +193,7 @@ function splitInlineOptions(line: string): QuestionOption[] | null {
 // what separate them when no section header settled it.
 function looksLikeMcqOptions(options: QuestionOption[]): boolean {
   if (options.length < 3 || options.length > 5) return false
+  if (isRomanSequence(options)) return false
   return options.every((o) => o.text.length <= 60)
 }
 
@@ -120,7 +205,7 @@ interface Building {
 }
 
 export function parseQuestions(raw: string): ParseResult {
-  const lines = normalise(raw)
+  const { lines, filtered: exercisesOnly } = keepExercisesOnly(normalise(raw))
   // A paper that writes "Qno:" uses bare "1)" for sub-parts, so bare numbers
   // must not start questions there. Decided once for the whole document.
   const usesExplicitMarkers = lines.some((l) => EXPLICIT_Q.test(l))
@@ -133,8 +218,7 @@ export function parseQuestions(raw: string): ParseResult {
 
   function flush() {
     if (!current) return
-    const built = finish(current, drafts.length)
-    if (built) drafts.push(built)
+    drafts.push(...finish(current, drafts.length))
     current = null
   }
 
@@ -147,7 +231,7 @@ export function parseQuestions(raw: string): ParseResult {
       continue
     }
 
-    if (INSTRUCTION.test(line)) {
+    if (INSTRUCTION.test(line) || PARTICULARS.test(line) || isFormField(line)) {
       flush()
       continue
     }
@@ -196,35 +280,71 @@ export function parseQuestions(raw: string): ParseResult {
   }
 
   flush()
-  return { drafts, sectionsFound }
+  return { drafts, sectionsFound, exercisesOnly }
 }
 
-function finish(building: Building, index: number): DraftQuestion | null {
+function finish(building: Building, index: number): DraftQuestion[] {
   const text = building.lines.join(' ').trim()
-  if (!text && building.options.length === 0) return null
+  if (!text && building.options.length === 0) return []
+
+  const product = MARKS_PRODUCT.exec(text)
+  // "Answer the given questions from Book-II Part-II. (3x2=6)" with nothing
+  // under it — a group this paper left empty. It introduces sub-parts that do
+  // not exist, so it is not a question.
+  if (building.options.length === 0 && product && DIRECTIVE_STEM.test(text)) return []
 
   const { type, reason, uncertain } = classify(building, text)
-
-  // Only an MCQ keeps its options as options. Everywhere else they were the
-  // sub-parts of the question, so they fold back into the text as the newline
-  // form the exam paper renderer already understands.
   const isMcq = type === 'mcq'
+
+  // "Answer the given questions… i) … ii) … iii)" is three questions wearing
+  // one number. A bank wants them apart: each is independently reusable, and a
+  // paper can group them again through a section. Only split when the stem is
+  // pure scaffolding, so a maths question keeps "Solve the following:" over
+  // its parts.
+  const splittable =
+    !isMcq &&
+    building.options.length >= 2 &&
+    (product !== null || DIRECTIVE_STEM.test(text)) &&
+    partsLookLikeQuestions(building.options)
+
+  if (splittable) {
+    const perPart = product ? product[2] : building.marks || defaultMarks(type)
+    // The whole question's type described the whole question. Two marks apiece
+    // makes each split part a short question, whatever the parent looked like.
+    const partType = typeForMarks(Number(perPart), type)
+    return building.options.map((part, i) => ({
+      key: `draft-${index}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+      questionType: partType,
+      text: part.text,
+      options: [],
+      marks: perPart,
+      chapter: '',
+      difficulty: '',
+      reason: product ? `Split — ${product[2]} marks each` : 'Split from a list',
+      uncertain: false,
+    }))
+  }
+
+  // Not split: the parts fold back into the text as the newline form the exam
+  // paper renderer already understands.
   const body =
     isMcq || building.options.length === 0
       ? text
       : [text, ...building.options.map((o) => `${o.key.toLowerCase()}) ${o.text}`)].filter(Boolean).join('\n')
 
-  return {
-    key: `draft-${index}-${Math.random().toString(36).slice(2, 8)}`,
-    questionType: type,
-    text: body,
-    options: isMcq ? building.options : [],
-    marks: building.marks || defaultMarks(type),
-    chapter: '',
-    difficulty: '',
-    reason,
-    uncertain,
-  }
+  return [
+    {
+      key: `draft-${index}-${Math.random().toString(36).slice(2, 8)}`,
+      questionType: type,
+      text: body,
+      options: isMcq ? building.options : [],
+      marks: building.marks || defaultMarks(type),
+      chapter: '',
+      difficulty: '',
+      reason,
+      uncertain,
+    },
+  ]
 }
 
 function classify(building: Building, text: string): { type: QuestionType; reason: string; uncertain: boolean } {
@@ -264,6 +384,13 @@ function classify(building: Building, text: string): { type: QuestionType; reaso
   }
 
   return { type: 'short', reason: 'Short single question', uncertain: true }
+}
+
+function typeForMarks(marks: number, fallback: QuestionType): QuestionType {
+  if (!Number.isFinite(marks) || marks <= 0) return fallback
+  if (marks <= 1) return 'short'
+  if (marks >= 5) return 'long'
+  return 'short'
 }
 
 function defaultMarks(type: QuestionType): string {
@@ -320,6 +447,37 @@ export function stripRunningHeaders(pages: string[]): string[] {
       furniture.has(headKey(lines[i]))
     return lines.filter((_, i) => !isFurniture(i)).join('\n')
   })
+}
+
+// Text recognition on a page it cannot read does not return nothing — it
+// returns plausible-looking wreckage: "Teer pi ——— 'eo, Po if(units <= 200)".
+// Tesseract's own confidence does not catch this on a mixed page, because the
+// bits it *can* read (English code in an Urdu computing book, say) score well
+// and pull the average up.
+//
+// Measured against real samples, what separates wreckage from prose is not
+// spelling but shape: recognition failure shatters words into one- and
+// two-character fragments and litters them with stray symbols. A page of real
+// questions sits far below both thresholds even when it is full of source
+// code, which is the closest legitimate text gets to looking like noise.
+//
+// This only ever raises a warning — the recognised text is shown for a human
+// to judge either way, because no threshold survives every kind of paper.
+const GIBBERISH_MIN_WORDS = 25
+const SHORT_TOKEN_LIMIT = 0.45
+const MIXED_SHORT_LIMIT = 0.35
+const SYMBOL_TOKEN_LIMIT = 0.18
+
+export function looksLikeGibberish(text: string): boolean {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length < GIBBERISH_MIN_WORDS) return false // too little to judge fairly
+
+  const short = words.filter((w) => w.length <= 2).length / words.length
+  // A token carrying both letters and punctuation — "AE.T-P", "#-C(Code".
+  const symbolly =
+    words.filter((w) => /\p{L}/u.test(w) && /[^\p{L}\p{N}]/u.test(w)).length / words.length
+
+  return short > SHORT_TOKEN_LIMIT || (short > MIXED_SHORT_LIMIT && symbolly > SYMBOL_TOKEN_LIMIT)
 }
 
 // Two questions imported from ten years of past papers are very often the same
