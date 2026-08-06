@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { extractPdfText, ScannedPdfError } from '@/lib/pdfText'
 import { ocrPdf, OcrGibberishError, OCR_LANGUAGES, type OcrLanguage, type OcrProgress } from '@/lib/pdfOcr'
-import { dedupeKey, parseQuestions, type DraftQuestion } from '@/lib/questionParser'
+import { dedupeKey, looksLikeGibberish, parseQuestions, type DraftQuestion } from '@/lib/questionParser'
 import { QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
 import { SymbolPad } from '@/components/SymbolPad'
@@ -20,7 +20,7 @@ const TYPE_BADGE: Record<QuestionType, string> = {
   true_false: 'bg-slate-100 text-slate-700 ring-slate-500/20 dark:bg-slate-700 dark:text-slate-200',
 }
 
-type Step = 'source' | 'review'
+type Step = 'source' | 'verify' | 'review'
 type SourceTab = 'pdf' | 'paste'
 
 export function QuestionImport({
@@ -56,6 +56,7 @@ export function QuestionImport({
   const [scannedFile, setScannedFile] = useState<File | null>(null)
   const [ocr, setOcr] = useState<OcrProgress | null>(null)
   const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>('eng')
+  const [recognised, setRecognised] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
@@ -129,8 +130,11 @@ export function QuestionImport({
         setError('Text recognition found almost nothing. The scan may be too faint or too skewed — try a clearer copy.')
         return
       }
-      runParse(text, scannedFile.name)
-      setScannedFile(null)
+      // Recognition is unreliable enough that a human should see what it read
+      // before any of it becomes questions. Being shown 27 rows of wreckage
+      // and having to delete them is the failure this prevents.
+      setRecognised(text)
+      setStep('verify')
     } catch (err) {
       // Kept on the scan panel rather than replacing it, so the language can be
       // changed and the same file retried without picking it again.
@@ -207,7 +211,13 @@ export function QuestionImport({
 
   return (
     <Modal
-      title={step === 'source' ? 'Import questions from a past paper' : `Review ${drafts.length} questions`}
+      title={
+        step === 'source'
+          ? 'Import questions from a past paper'
+          : step === 'verify'
+            ? 'Check what was read'
+            : `Review ${drafts.length} questions`
+      }
       size={step === 'review' ? 'xl' : 'wide'}
       onClose={onClose}
     >
@@ -345,6 +355,60 @@ export function QuestionImport({
                 Parse questions
               </Button>
             )}
+          </div>
+        </div>
+      ) : step === 'verify' ? (
+        <div className="space-y-3">
+          {looksLikeGibberish(recognised) ? (
+            <p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+              This does not look like readable text. The page is probably in a different language than the one
+              chosen, handwritten, or too faint to read. Try another language, or use the Paste text tab.
+            </p>
+          ) : (
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              This is what was read from “{fileName || scannedFile?.name}”. If it looks right, carry on — otherwise
+              try a different language rather than sorting out the questions afterwards.
+            </p>
+          )}
+
+          <pre className="max-h-[45vh] overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+            {recognised}
+          </pre>
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setRecognised('')
+                setStep('source')
+              }}
+            >
+              Back
+            </Button>
+            <div className="w-32">
+              <Select
+                value={ocrLanguage}
+                onChange={(e) => setOcrLanguage(e.target.value as OcrLanguage)}
+                aria-label="Language of the paper"
+              >
+                {OCR_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Button variant="secondary" onClick={handleOcr} disabled={busy || !scannedFile}>
+              Read again in this language
+            </Button>
+            <Button
+              onClick={() => {
+                runParse(recognised, scannedFile?.name ?? 'Scanned PDF')
+                setScannedFile(null)
+              }}
+            >
+              Looks right — find questions
+            </Button>
           </div>
         </div>
       ) : (

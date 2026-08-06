@@ -360,6 +360,37 @@ export function stripRunningHeaders(pages: string[]): string[] {
   })
 }
 
+// Text recognition on a page it cannot read does not return nothing — it
+// returns plausible-looking wreckage: "Teer pi ——— 'eo, Po if(units <= 200)".
+// Tesseract's own confidence does not catch this on a mixed page, because the
+// bits it *can* read (English code in an Urdu computing book, say) score well
+// and pull the average up.
+//
+// Measured against real samples, what separates wreckage from prose is not
+// spelling but shape: recognition failure shatters words into one- and
+// two-character fragments and litters them with stray symbols. A page of real
+// questions sits far below both thresholds even when it is full of source
+// code, which is the closest legitimate text gets to looking like noise.
+//
+// This only ever raises a warning — the recognised text is shown for a human
+// to judge either way, because no threshold survives every kind of paper.
+const GIBBERISH_MIN_WORDS = 25
+const SHORT_TOKEN_LIMIT = 0.45
+const MIXED_SHORT_LIMIT = 0.35
+const SYMBOL_TOKEN_LIMIT = 0.18
+
+export function looksLikeGibberish(text: string): boolean {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length < GIBBERISH_MIN_WORDS) return false // too little to judge fairly
+
+  const short = words.filter((w) => w.length <= 2).length / words.length
+  // A token carrying both letters and punctuation — "AE.T-P", "#-C(Code".
+  const symbolly =
+    words.filter((w) => /\p{L}/u.test(w) && /[^\p{L}\p{N}]/u.test(w)).length / words.length
+
+  return short > SHORT_TOKEN_LIMIT || (short > MIXED_SHORT_LIMIT && symbolly > SYMBOL_TOKEN_LIMIT)
+}
+
 // Two questions imported from ten years of past papers are very often the same
 // question with different spacing or punctuation. Comparing on a stripped form
 // catches those without needing anything cleverer.
