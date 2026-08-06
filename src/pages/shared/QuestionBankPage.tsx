@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { QuestionImport } from '@/components/QuestionImport'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
+import { SymbolPad } from '@/components/SymbolPad'
 import { QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import type { Class, Question, QuestionType, Subject } from '@/types/database'
 
@@ -32,6 +33,7 @@ export function QuestionBankPage() {
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Question | null>(null)
+  const questionTextRef = useRef<HTMLTextAreaElement>(null)
 
   async function load() {
     setLoading(true)
@@ -252,10 +254,18 @@ export function QuestionBankPage() {
             </Field>
             <Field label="Question text">
               <Textarea
+                ref={questionTextRef}
                 rows={3}
                 value={form.question_text}
                 onChange={(e) => setForm({ ...form, question_text: e.target.value })}
               />
+              <div className="mt-2">
+                <SymbolPad
+                  targetRef={questionTextRef}
+                  value={form.question_text}
+                  onChange={(question_text) => setForm({ ...form, question_text })}
+                />
+              </div>
             </Field>
             {form.question_type === 'mcq' && (
               <Field label="Options">

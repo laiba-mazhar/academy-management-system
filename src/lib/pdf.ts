@@ -208,41 +208,18 @@ const PART_TEXT_X = 50
 
 type Doc = import('jspdf').jsPDF
 
-// jsPDF's built-in fonts are WinAnsi-encoded, so a character outside that set
-// comes out as mangled punctuation rather than as itself — "q ≠ 0" printed as
-// "q ''' 0". These are the symbols a maths or physics paper actually reaches
-// for; each maps to the ASCII a teacher would have typed anyway.
-//
-// The browser print path has no such limit, so Print Paper still reproduces
-// the original characters exactly.
-const WINANSI_FALLBACKS: [RegExp, string][] = [
-  [/≠/g, '!='],
-  [/≤/g, '<='],
-  [/≥/g, '>='],
-  [/≈/g, '~='],
-  [/√/g, 'sqrt'],
-  [/∞/g, 'infinity'],
-  [/∑/g, 'sum'],
-  [/∫/g, 'integral'],
-  [/∈/g, ' in '],
-  [/⇒/g, '=>'],
-  [/→/g, '->'],
-  [/↔/g, '<->'],
-  [/∴/g, 'therefore'],
-  [/∆|Δ/g, 'delta'],
-  [/π/g, 'pi'],
-  [/θ/g, 'theta'],
-  [/α/g, 'alpha'],
-  [/β/g, 'beta'],
-  [/γ/g, 'gamma'],
-  [/λ/g, 'lambda'],
-  [/σ/g, 'sigma'],
-  [/Ω/g, 'ohm'],
-]
+// The paper's body font. jsPDF's built-in faces are WinAnsi-encoded, so a
+// maths symbol came out as mangled punctuation; this is a subsetted DejaVu
+// Sans Bold registered at document level. The letterhead keeps helvetica and
+// times, which is plain ASCII and needs nothing special.
+const BODY_FONT = 'MaktabUnicode'
 
-function pdfSafe(text: string): string {
-  return WINANSI_FALLBACKS.reduce((out, [re, replacement]) => out.replace(re, replacement), text)
+async function registerBodyFont(doc: Doc) {
+  const { PDF_UNICODE_FONT_BASE64 } = await import('@/assets/pdfUnicodeFont')
+  doc.addFileToVFS('MaktabUnicode-Bold.ttf', PDF_UNICODE_FONT_BASE64)
+  doc.addFont('MaktabUnicode-Bold.ttf', BODY_FONT, 'bold')
 }
+
 
 function drawWatermark(doc: Doc, logo: string) {
   // Behind everything, so it goes down before any text on the page. The crest
@@ -285,7 +262,7 @@ function drawLetterhead(doc: Doc, logo: string) {
 function drawParticulars(doc: Doc, paper: QuestionPaper) {
   const duration = formatDuration(paper.durationMinutes)
 
-  doc.setFont('helvetica', 'bold')
+  doc.setFont(BODY_FONT, 'bold')
   doc.setFontSize(10)
   doc.setTextColor(0)
   if (duration) doc.text(`TIME ${duration}`, BODY_LEFT, 131.5)
@@ -325,11 +302,12 @@ export async function downloadQuestionPaperPdf(paper: QuestionPaper) {
   ])
 
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+  await registerBodyFont(doc)
   drawWatermark(doc, MAKTAB_LOGO_BASE64)
   drawLetterhead(doc, MAKTAB_LOGO_BASE64)
   drawParticulars(doc, paper)
 
-  doc.setFont('helvetica', 'bold')
+  doc.setFont(BODY_FONT, 'bold')
   doc.setFontSize(12)
   doc.setTextColor(0)
 
@@ -341,7 +319,7 @@ export async function downloadQuestionPaperPdf(paper: QuestionPaper) {
     if (y + needed <= BODY_BOTTOM) return
     doc.addPage()
     drawWatermark(doc, MAKTAB_LOGO_BASE64)
-    doc.setFont('helvetica', 'bold')
+    doc.setFont(BODY_FONT, 'bold')
     doc.setFontSize(12)
     doc.setTextColor(0)
     y = 60
@@ -366,8 +344,8 @@ export async function downloadQuestionPaperPdf(paper: QuestionPaper) {
       if (section.title || section.instruction) {
         newPageIfNeeded(LINE_H * 2)
         doc.setFontSize(11)
-        if (section.title) doc.text(pdfSafe(section.title), BODY_LEFT, y)
-        if (section.instruction) doc.text(pdfSafe(section.instruction), BODY_RIGHT, y, { align: 'right' })
+        if (section.title) doc.text(section.title, BODY_LEFT, y)
+        if (section.instruction) doc.text(section.instruction, BODY_RIGHT, y, { align: 'right' })
         y += 4
         doc.setLineWidth(0.5)
         doc.setDrawColor(0)
@@ -380,7 +358,7 @@ export async function downloadQuestionPaperPdf(paper: QuestionPaper) {
         const { stem } = parseQuestionText(question.question_text)
         const parts = visibleParts(question)
         const stemLines = doc.splitTextToSize(
-          pdfSafe(`Qno: ${numbers.get(question) ?? 0}  ${stem}`),
+          `Qno: ${numbers.get(question) ?? 0}  ${stem}`,
           stemWidth
         ) as string[]
 
@@ -393,7 +371,7 @@ export async function downloadQuestionPaperPdf(paper: QuestionPaper) {
         const options = question.question_type === 'mcq' ? (question.options ?? []) : []
         if (options.length > 0) {
           // One wrapped row of choices, as they appear on a board paper.
-          const line = pdfSafe(options.map((o) => `(${o.key.toLowerCase()}) ${o.text}`).join('    '))
+          const line = options.map((o) => `(${o.key.toLowerCase()}) ${o.text}`).join('    ')
           const optionLines = doc.splitTextToSize(line, BODY_RIGHT - PART_TEXT_X) as string[]
           newPageIfNeeded(optionLines.length * LINE_H)
           for (const optionLine of optionLines) {
@@ -405,7 +383,7 @@ export async function downloadQuestionPaperPdf(paper: QuestionPaper) {
         if (parts.length > 0) {
           y += BLOCK_GAP // a visible step down from the stem into its sub-parts
           for (const subPart of parts) {
-            const partLines = doc.splitTextToSize(pdfSafe(subPart.text), partWidth) as string[]
+            const partLines = doc.splitTextToSize(subPart.text, partWidth) as string[]
             newPageIfNeeded(partLines.length * LINE_H)
             doc.text(subPart.marker, PART_MARKER_X, y)
             partLines.forEach((line, i) => {

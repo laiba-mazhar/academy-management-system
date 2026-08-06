@@ -98,6 +98,27 @@ export interface QuestionPaper {
   parts: PaperPart[]
 }
 
+// jsPDF can embed a Unicode font but cannot do the contextual letter-joining
+// or right-to-left layout Arabic script needs, so an Urdu paper downloads as
+// disconnected letters in the wrong order. The browser's print engine does all
+// of that correctly, so those papers are pointed at Print instead.
+const ARABIC_SCRIPT = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/
+
+export function usesArabicScript(parts: PaperPart[]): boolean {
+  return parts.some((part) =>
+    part.sections.some(
+      (section) =>
+        ARABIC_SCRIPT.test(section.title) ||
+        ARABIC_SCRIPT.test(section.instruction ?? '') ||
+        section.questions.some(
+          (q) =>
+            ARABIC_SCRIPT.test(q.question_text) ||
+            (q.options ?? []).some((o) => ARABIC_SCRIPT.test(o.text))
+        )
+    )
+  )
+}
+
 export const PART_LABELS: Record<ExamPart, string> = {
   objective: 'OBJECTIVE PART',
   subjective: 'SUBJECTIVE PART',
