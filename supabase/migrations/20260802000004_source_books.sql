@@ -44,26 +44,33 @@ comment on column questions.crop is
 alter table source_books enable row level security;
 alter table source_book_pages enable row level security;
 
+drop policy if exists source_books_select on source_books;
 create policy source_books_select on source_books for select
   using (is_admin() or subject_id in (select teacher_subject_ids()));
+drop policy if exists source_books_insert on source_books;
 create policy source_books_insert on source_books for insert
   with check (is_admin() or subject_id in (select teacher_subject_ids()));
+drop policy if exists source_books_update on source_books;
 create policy source_books_update on source_books for update
   using (is_admin() or subject_id in (select teacher_subject_ids()))
   with check (is_admin() or subject_id in (select teacher_subject_ids()));
+drop policy if exists source_books_delete on source_books;
 create policy source_books_delete on source_books for delete
   using (is_admin() or subject_id in (select teacher_subject_ids()));
 
+drop policy if exists source_book_pages_select on source_book_pages;
 create policy source_book_pages_select on source_book_pages for select
   using (
     is_admin()
     or book_id in (select id from source_books where subject_id in (select teacher_subject_ids()))
   );
+drop policy if exists source_book_pages_insert on source_book_pages;
 create policy source_book_pages_insert on source_book_pages for insert
   with check (
     is_admin()
     or book_id in (select id from source_books where subject_id in (select teacher_subject_ids()))
   );
+drop policy if exists source_book_pages_delete on source_book_pages;
 create policy source_book_pages_delete on source_book_pages for delete
   using (
     is_admin()

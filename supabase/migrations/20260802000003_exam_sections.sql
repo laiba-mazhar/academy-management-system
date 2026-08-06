@@ -44,18 +44,21 @@ alter table exam_sections enable row level security;
 -- Scoped through the parent exam's subject assignment, exactly as
 -- exam_questions is: a teacher reaches the sections of their own papers and
 -- nothing else.
+drop policy if exists exam_sections_select on exam_sections;
 create policy exam_sections_select on exam_sections for select
   using (
     is_admin()
     or exam_id in (select id from exams where subject_id in (select teacher_subject_ids()))
   );
 
+drop policy if exists exam_sections_insert on exam_sections;
 create policy exam_sections_insert on exam_sections for insert
   with check (
     is_admin()
     or exam_id in (select id from exams where subject_id in (select teacher_subject_ids()))
   );
 
+drop policy if exists exam_sections_update on exam_sections;
 create policy exam_sections_update on exam_sections for update
   using (
     is_admin()
@@ -66,6 +69,7 @@ create policy exam_sections_update on exam_sections for update
     or exam_id in (select id from exams where subject_id in (select teacher_subject_ids()))
   );
 
+drop policy if exists exam_sections_delete on exam_sections;
 create policy exam_sections_delete on exam_sections for delete
   using (
     is_admin()
