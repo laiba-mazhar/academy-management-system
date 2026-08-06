@@ -5,9 +5,11 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { extractPdfText, ScannedPdfError } from '@/lib/pdfText'
+import { ocrPdf, type OcrProgress } from '@/lib/pdfOcr'
 import { dedupeKey, parseQuestions, type DraftQuestion } from '@/lib/questionParser'
 import { QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
+import { SymbolPad } from '@/components/SymbolPad'
 import type { Class, Question, QuestionType, Subject } from '@/types/database'
 
 const TYPE_BADGE: Record<QuestionType, string> = {
@@ -47,6 +49,11 @@ export function QuestionImport({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sectionsFound, setSectionsFound] = useState(false)
   const [bulkChapter, setBulkChapter] = useState('')
+  const [bulkMarks, setBulkMarks] = useState('')
+  // Held so the "read it anyway" button can retry the same file with OCR
+  // without asking the teacher to pick it again.
+  const [scannedFile, setScannedFile] = useState<File | null>(null)
+  const [ocr, setOcr] = useState<OcrProgress | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
@@ -88,16 +95,39 @@ export function QuestionImport({
   async function handleFile(file: File) {
     setBusy(true)
     setError(null)
+    setScannedFile(null)
     try {
       const text = await extractPdfText(file)
       runParse(text, file.name)
     } catch (err) {
-      setError(
-        err instanceof ScannedPdfError
-          ? err.message
-          : `Could not read that PDF. ${err instanceof Error ? err.message : ''}`.trim()
-      )
+      if (err instanceof ScannedPdfError) {
+        // Not a dead end any more — offer to recognise it instead.
+        setScannedFile(file)
+        setError(null)
+      } else {
+        setError(`Could not read that PDF. ${err instanceof Error ? err.message : ''}`.trim())
+      }
     } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleOcr() {
+    if (!scannedFile) return
+    setBusy(true)
+    setError(null)
+    try {
+      const text = await ocrPdf(scannedFile, setOcr)
+      if (text.trim().length < 20) {
+        setError('Text recognition found almost nothing. The scan may be too faint or too skewed — try a clearer copy.')
+        return
+      }
+      runParse(text, scannedFile.name)
+      setScannedFile(null)
+    } catch (err) {
+      setError(`Text recognition failed. ${err instanceof Error ? err.message : ''}`.trim())
+    } finally {
+      setOcr(null)
       setBusy(false)
     }
   }
@@ -233,6 +263,43 @@ export function QuestionImport({
             </Field>
           )}
 
+          {scannedFile && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 dark:border-amber-800/60 dark:bg-amber-950/30">
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                “{scannedFile.name}” is a scan
+              </p>
+              <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90">
+                There is no text in this PDF — it is a picture of a paper. Text recognition can read it, but it takes
+                a few seconds a page and is less accurate than a Word-exported PDF, so check the questions carefully
+                afterwards.
+              </p>
+              {ocr ? (
+                <div className="mt-2">
+                  <p className="text-xs text-amber-900 dark:text-amber-200">{ocr.note}</p>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-amber-200 dark:bg-amber-900/60">
+                    <div
+                      className="h-full rounded-full bg-amber-600 transition-all duration-200 dark:bg-amber-400"
+                      style={{
+                        width: `${Math.round(
+                          ((Math.max(ocr.page - 1, 0) + ocr.ratio) / Math.max(ocr.totalPages, 1)) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 flex gap-2">
+                  <Button onClick={handleOcr} disabled={busy}>
+                    Read it with text recognition
+                  </Button>
+                  <Button variant="secondary" onClick={() => { setScannedFile(null); setTab('paste') }}>
+                    Paste the text instead
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           {error && (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
               {error}
@@ -296,6 +363,27 @@ export function QuestionImport({
                 variant="secondary"
                 disabled={selected.size === 0 || !bulkChapter.trim()}
                 onClick={() => applyToSelected({ chapter: bulkChapter.trim() })}
+              >
+                Set
+              </Button>
+            </div>
+            {/* A textbook exercise carries no marks at all, so setting them one
+                row at a time is the slowest part of importing one. */}
+            <div className="flex items-center gap-1">
+              <div className="w-20">
+                <Input
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  value={bulkMarks}
+                  onChange={(e) => setBulkMarks(e.target.value)}
+                  placeholder="Marks"
+                />
+              </div>
+              <Button
+                variant="secondary"
+                disabled={selected.size === 0 || !(Number(bulkMarks) > 0)}
+                onClick={() => applyToSelected({ marks: bulkMarks })}
               >
                 Set
               </Button>
@@ -379,6 +467,8 @@ function DraftRow({
   onToggle: () => void
   onChange: (patch: Partial<DraftQuestion>) => void
 }) {
+  const textRef = useRef<HTMLTextAreaElement>(null)
+
   return (
     <div
       className={`rounded-xl border p-3 ${
@@ -447,10 +537,14 @@ function DraftRow({
           </div>
 
           <Textarea
+            ref={textRef}
             rows={draft.text.includes('\n') ? 3 : 2}
             value={draft.text}
             onChange={(e) => onChange({ text: e.target.value })}
           />
+          {/* Recognition and copy-paste both mangle maths symbols, so the pad
+              belongs where the corrections actually get made. */}
+          <SymbolPad targetRef={textRef} value={draft.text} onChange={(text) => onChange({ text })} />
 
           {draft.questionType === 'mcq' && (
             <McqOptionsEditor options={draft.options} onChange={(options) => onChange({ options })} />

@@ -1,3 +1,4 @@
+import { stripRunningHeaders } from '@/lib/questionParser'
 // Reads the text out of a past paper PDF, entirely in the browser — the file
 // is never uploaded anywhere.
 //
@@ -29,7 +30,9 @@ interface Fragment {
   width: number
 }
 
-export async function extractPdfText(file: File): Promise<string> {
+// Shared by the text reader and the OCR reader, so both open a PDF the same
+// way and neither has to know how the worker is wired up.
+export async function loadPdf(file: File) {
   const pdfjs = await import('pdfjs-dist')
   // Vite resolves this to a hashed asset URL and pdf.js runs it as a worker,
   // keeping the parse off the main thread.
@@ -37,7 +40,11 @@ export async function extractPdfText(file: File): Promise<string> {
   pdfjs.GlobalWorkerOptions.workerSrc = workerSrc
 
   const buffer = await file.arrayBuffer()
-  const doc = await pdfjs.getDocument({ data: buffer }).promise
+  return pdfjs.getDocument({ data: buffer }).promise
+}
+
+export async function extractPdfText(file: File): Promise<string> {
+  const doc = await loadPdf(file)
 
   const pages: string[] = []
   try {
@@ -62,7 +69,7 @@ export async function extractPdfText(file: File): Promise<string> {
     await doc.destroy()
   }
 
-  const text = pages.join('\n')
+  const text = stripRunningHeaders(pages).join('\n')
   if (text.replace(/\s/g, '').length < MIN_CHARS_PER_PAGE * doc.numPages) {
     throw new ScannedPdfError()
   }
