@@ -13,11 +13,13 @@ import { formatDate, formatDateTime, percentage, toPakistaniMsisdn } from '@/lib
 import { edgeFunctionError, friendlyError } from '@/lib/errors'
 import { downloadQuestionPaperPdf } from '@/lib/pdf'
 import { paperMarks, usesArabicScript, type PaperPart, type QuestionPaper } from '@/lib/examPaper'
+import { signPages } from '@/lib/sourceBooks'
 import type {
   Class,
   Exam,
   ExamQuestion,
   ExamSection,
+  SourceBookPage,
   ExamResult,
   Question,
   QuestionOption,
@@ -56,6 +58,8 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   const [addingQuestion, setAddingQuestion] = useState(false)
   const [downloadingPaper, setDownloadingPaper] = useState(false)
   const newQuestionRef = useRef<HTMLTextAreaElement>(null)
+  const [snipPages, setSnipPages] = useState<Map<string, SourceBookPage>>(new Map())
+  const [snipUrls, setSnipUrls] = useState<Map<string, string>>(new Map())
 
   const marksDirty = JSON.stringify(results) !== JSON.stringify(savedResults)
 
@@ -82,7 +86,23 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     ])
     if (subjectRes.data) setSubject(subjectRes.data as Subject)
     if (classRes.data) setKlass(classRes.data as Class)
-    if (questionsRes.data) setQuestions(questionsRes.data as Question[])
+    if (questionsRes.data) {
+      const rows = questionsRes.data as Question[]
+      setQuestions(rows)
+      // Questions snipped from a book are pictures; the paper needs the page
+      // rows and a signed link before it can draw them.
+      const pageIds = [...new Set(rows.map((q) => q.source_page_id).filter((id): id is string => !!id))]
+      if (pageIds.length > 0) {
+        const { data: pageRows } = await supabase.from('source_book_pages').select('*').in('id', pageIds)
+        const pages = (pageRows ?? []) as SourceBookPage[]
+        setSnipPages(new Map(pages.map((p) => [p.id, p])))
+        try {
+          setSnipUrls(await signPages(pages))
+        } catch {
+          setSnipUrls(new Map())
+        }
+      }
+    }
     if (examQuestionsRes.data) setExamQuestions(examQuestionsRes.data as ExamQuestion[])
     if (sectionsRes.data) setSections(sectionsRes.data as ExamSection[])
     if (studentsRes.data) setStudents(studentsRes.data as Student[])
@@ -137,7 +157,19 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
     const toQuestions = (list: ExamQuestion[]) =>
       list.flatMap((row) => {
         const q = bankById.get(row.question_id)
-        return q ? [{ ...q, marks: q.marks, partIndexes: row.part_indexes }] : []
+        if (!q) return []
+        const page = q.source_page_id ? snipPages.get(q.source_page_id) : undefined
+        return [
+          {
+            ...q,
+            marks: q.marks,
+            partIndexes: row.part_indexes,
+            snip:
+              page && q.crop
+                ? { url: snipUrls.get(page.id), page: { width: page.width, height: page.height }, crop: q.crop }
+                : null,
+          },
+        ]
       })
 
     const result: PaperPart[] = []
@@ -165,7 +197,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
       else result.push({ part: 'subjective', sections: [section] })
     }
     return result
-  }, [questions, sections, examQuestions])
+  }, [questions, sections, examQuestions, snipPages, snipUrls])
 
   // What the paper is actually worth. A section with a choice contributes only
   // the questions a student can attempt, not every one printed.

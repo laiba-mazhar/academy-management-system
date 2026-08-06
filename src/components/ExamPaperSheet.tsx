@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import logoUrl from '@/assets/maktab_logo_transparent.png'
+import { SnipImage } from '@/components/SnipImage'
 import {
   formatDuration,
   numberedQuestions,
@@ -166,6 +167,26 @@ function PaperQuestionItem({ question, number }: { question: PaperQuestion; numb
   const { stem } = parseQuestionText(question.question_text)
   const parts = visibleParts(question)
   const options = question.question_type === 'mcq' ? (question.options ?? []) : []
+
+  // A snip is the question. Its own label is a filing note for the bank, not
+  // something to print above the picture of the actual question.
+  if (question.snip) {
+    return (
+      <li className="font-bold" style={{ fontSize: '12pt', marginBottom: '3.5mm' }}>
+        <div className="flex items-start gap-2">
+          <span className="shrink-0" style={{ lineHeight: 1.6 }}>
+            Qno: {number}
+          </span>
+          <SnipImage
+            page={question.snip.page}
+            crop={question.snip.crop}
+            url={question.snip.url}
+            width={620}
+          />
+        </div>
+      </li>
+    )
+  }
 
   return (
     <li className="font-bold" style={{ fontSize: '12pt', marginBottom: '3.5mm' }}>

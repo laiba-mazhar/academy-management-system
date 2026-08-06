@@ -107,6 +107,34 @@ export interface QuestionOption {
   text: string
 }
 
+export interface SourceBook {
+  id: string
+  subject_id: string
+  class_id: string
+  title: string
+  page_count: number
+  created_by: string | null
+  created_at: string
+}
+
+export interface SourceBookPage {
+  id: string
+  book_id: string
+  page_number: number
+  /** Path within the book-pages storage bucket. */
+  storage_path: string
+  width: number
+  height: number
+}
+
+/** A region of a page, as fractions of its width and height. */
+export interface Crop {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 export interface Question {
   id: string
   subject_id: string
@@ -122,6 +150,9 @@ export interface Question {
   difficulty: QuestionDifficulty | null
   /** Free-text provenance: "Board 2023", or the imported file's name. */
   source: string | null
+  /** Set when the question is a snip from a scanned book rather than text. */
+  source_page_id: string | null
+  crop: Crop | null
   created_by: string | null
   created_at: string
 }
@@ -317,6 +348,8 @@ export interface Database {
           | 'answer'
           | 'difficulty'
           | 'source'
+          | 'source_page_id'
+          | 'crop'
           | 'created_by'
           | 'created_at'
         >
@@ -327,6 +360,18 @@ export interface Database {
         Row: Exam
         Insert: InsertOf<Exam, 'id' | 'created_by' | 'created_at'>
         Update: Partial<Exam>
+        Relationships: []
+      }
+      source_books: {
+        Row: SourceBook
+        Insert: InsertOf<SourceBook, 'id' | 'page_count' | 'created_by' | 'created_at'>
+        Update: Partial<SourceBook>
+        Relationships: []
+      }
+      source_book_pages: {
+        Row: SourceBookPage
+        Insert: InsertOf<SourceBookPage, 'id'>
+        Update: Partial<SourceBookPage>
         Relationships: []
       }
       exam_sections: {

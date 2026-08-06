@@ -6,10 +6,13 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { QuestionImport } from '@/components/QuestionImport'
+import { BookLibrary } from '@/components/BookLibrary'
+import { SnipImage } from '@/components/SnipImage'
+import { signPages } from '@/lib/sourceBooks'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
 import { SymbolPad } from '@/components/SymbolPad'
 import { QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
-import type { Class, Question, QuestionType, Subject } from '@/types/database'
+import type { Class, Question, QuestionType, SourceBookPage, Subject } from '@/types/database'
 
 
 export function QuestionBankPage() {
@@ -21,6 +24,9 @@ export function QuestionBankPage() {
   const [subjectFilter, setSubjectFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState<'all' | QuestionType>('all')
   const [showImport, setShowImport] = useState(false)
+  const [showBooks, setShowBooks] = useState(false)
+  const [snipPages, setSnipPages] = useState<Map<string, SourceBookPage>>(new Map())
+  const [snipUrls, setSnipUrls] = useState<Map<string, string>>(new Map())
   const [sourceFilter, setSourceFilter] = useState('all')
   const [purgeSource, setPurgeSource] = useState<string | null>(null)
 
@@ -47,8 +53,31 @@ export function QuestionBankPage() {
     if (subjectsRes.data) setSubjects(subjectsRes.data as Subject[])
     if (classesRes.data) setClasses(classesRes.data as Class[])
     if (questionsRes.error) show(questionsRes.error.message, 'error')
-    else setQuestions(questionsRes.data as Question[])
+    else {
+      const rows = questionsRes.data as Question[]
+      setQuestions(rows)
+      await loadSnips(rows)
+    }
     setLoading(false)
+  }
+
+  // Snipped questions are pictures of book pages, so the bank needs the page
+  // rows and a signed link for each before it can show them.
+  async function loadSnips(rows: Question[]) {
+    const ids = [...new Set(rows.map((q) => q.source_page_id).filter((id): id is string => !!id))]
+    if (ids.length === 0) {
+      setSnipPages(new Map())
+      setSnipUrls(new Map())
+      return
+    }
+    const { data } = await supabase.from('source_book_pages').select('*').in('id', ids)
+    const pages = (data ?? []) as SourceBookPage[]
+    setSnipPages(new Map(pages.map((p) => [p.id, p])))
+    try {
+      setSnipUrls(await signPages(pages))
+    } catch {
+      setSnipUrls(new Map())
+    }
   }
 
   useEffect(() => {
@@ -169,6 +198,9 @@ export function QuestionBankPage() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Organize questions by subject and chapter for exam papers.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setShowBooks(true)} disabled={subjects.length === 0}>
+            Scanned books
+          </Button>
           <Button variant="secondary" onClick={() => setShowImport(true)} disabled={subjects.length === 0}>
             Import from past paper
           </Button>
@@ -235,7 +267,22 @@ export function QuestionBankPage() {
                     <span className="text-[11px] capitalize text-slate-400 dark:text-slate-500">{q.difficulty}</span>
                   )}
                 </div>
-                <p className="mt-1 whitespace-pre-line text-sm text-slate-800 dark:text-slate-100">{q.question_text}</p>
+                {q.source_page_id && q.crop && snipPages.get(q.source_page_id) ? (
+                  <div className="mt-1">
+                    <p className="text-xs italic text-slate-500 dark:text-slate-400">{q.question_text}</p>
+                    <SnipImage
+                      page={snipPages.get(q.source_page_id)!}
+                      crop={q.crop}
+                      url={snipUrls.get(q.source_page_id)}
+                      width={420}
+                      className="mt-1 rounded border border-slate-200 dark:border-slate-700"
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-1 whitespace-pre-line text-sm text-slate-800 dark:text-slate-100">
+                    {q.question_text}
+                  </p>
+                )}
                 {q.question_type === 'mcq' && q.options && q.options.length > 0 && (
                   <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
                     {q.options.map((o) => (
@@ -332,6 +379,15 @@ export function QuestionBankPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {showBooks && (
+        <BookLibrary
+          subjects={subjects}
+          classes={classes}
+          onClose={() => setShowBooks(false)}
+          onQuestionAdded={load}
+        />
       )}
 
       {showImport && (
