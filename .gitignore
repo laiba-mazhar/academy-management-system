@@ -13,3 +13,6 @@ supabase/.temp/
 
 .vercel
 .env*
+
+# Copied from node_modules at build time by scripts/copy-ocr-assets.mjs
+public/tesseract/
