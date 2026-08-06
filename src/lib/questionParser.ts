@@ -98,8 +98,10 @@ const OPTION_LETTER = /^\s*\(?([a-hA-H]|i{1,3}v?|iv|v)\)\s*(.*)$/
 // "1)" / "2." as a sub-part. Only consulted when bare numbers are not
 // starting questions, otherwise every question would swallow the next one.
 const OPTION_NUMBER = /^\s*\(?(\d{1,2})[).]\s*(.+)$/
-// Several options crammed onto one line: "(a) 4  (b) 5  (c) 6  (d) 7".
-const INLINE_OPTIONS = /\(?\b([a-hA-H])\)\s*/g
+// Markers sharing a line, either as MCQ choices — "(a) 4 (b) 5 (c) 6 (d) 7" —
+// or as sub-questions a PDF has run together: "i) Why …? (ii) Why …?". Roman
+// numerals are included because that is how sub-questions are usually lettered.
+const INLINE_MARKERS = /(?:^|\s)\(?((?:i{1,3}v?|iv|vi{0,3}|ix|xi{0,3}|x|[a-hA-H]))\)\s+/gi
 // A trailing "(5)" / "[2 marks]".
 const TRAILING_MARKS = /[([]\s*(\d+(?:\.\d+)?)\s*(?:marks?)?\s*[)\]]\s*$/i
 // "Attempt any six questions" — an instruction, not a question.
@@ -110,12 +112,21 @@ const INSTRUCTION = /^\s*(attempt|answer)\s+(any|all)\b/i
 // matching on that rather than on position means it is dropped even when a PDF
 // holds several papers back to back, each with its own header.
 const PARTICULARS = /(?:\b[A-Za-z#]+\s*:\s*){3,}/
+// The same strip when a PDF puts each field on its own line — "Name:",
+// "Roll#:", "Class: Inter Part-II". One or two words before the colon is what
+// separates a form label from a stem: "Solve the following:" has three.
+const FORM_FIELD = /^([^:]{1,24}):\s*\S{0,24}$/
 // "(3x2=6)" — three parts worth two marks each. The per-part figure is what a
 // split sub-question should carry.
 const MARKS_PRODUCT = /\(\s*(\d{1,2})\s*[x×*]\s*(\d+(?:\.\d+)?)\s*=\s*\d+(?:\.\d+)?\s*\)/i
 // A stem whose only job is to introduce its sub-parts. When the parts are
 // split out, nothing of value is lost by dropping it.
 const DIRECTIVE_STEM = /\b(answer|attempt|solve|do|write)\b.{0,40}\b(given|following|these)\b/i
+
+function isFormField(line: string): boolean {
+  const match = FORM_FIELD.exec(line)
+  return match !== null && match[1].trim().split(/\s+/).length <= 2
+}
 
 function normalise(raw: string): string[] {
   return raw
@@ -141,8 +152,14 @@ function isSectionHeader(line: string): boolean {
 }
 
 function splitInlineOptions(line: string): QuestionOption[] | null {
-  const markers = [...line.matchAll(INLINE_OPTIONS)]
-  if (markers.length < 3) return null
+  const markers = [...line.matchAll(INLINE_MARKERS)]
+  if (markers.length === 0) return null
+
+  // Three or more is unambiguous. Two is only trusted when the line opens with
+  // a marker — that is a list, whereas prose merely mentioning "(a) or (b)"
+  // does not start with one.
+  const opensWithMarker = markers[0].index === 0
+  if (markers.length < 3 && !(markers.length === 2 && opensWithMarker)) return null
 
   const options: QuestionOption[] = []
   markers.forEach((m, i) => {
@@ -151,7 +168,7 @@ function splitInlineOptions(line: string): QuestionOption[] | null {
     const text = line.slice(start, end).trim()
     if (text) options.push({ key: m[1].toUpperCase(), text })
   })
-  return options.length >= 3 ? options : null
+  return options.length >= 2 ? options : null
 }
 
 // Splitting suits sub-parts that are whole questions ("Why is the universe so
@@ -214,7 +231,7 @@ export function parseQuestions(raw: string): ParseResult {
       continue
     }
 
-    if (INSTRUCTION.test(line) || PARTICULARS.test(line)) {
+    if (INSTRUCTION.test(line) || PARTICULARS.test(line) || isFormField(line)) {
       flush()
       continue
     }
@@ -270,6 +287,12 @@ function finish(building: Building, index: number): DraftQuestion[] {
   const text = building.lines.join(' ').trim()
   if (!text && building.options.length === 0) return []
 
+  const product = MARKS_PRODUCT.exec(text)
+  // "Answer the given questions from Book-II Part-II. (3x2=6)" with nothing
+  // under it — a group this paper left empty. It introduces sub-parts that do
+  // not exist, so it is not a question.
+  if (building.options.length === 0 && product && DIRECTIVE_STEM.test(text)) return []
+
   const { type, reason, uncertain } = classify(building, text)
   const isMcq = type === 'mcq'
 
@@ -278,7 +301,6 @@ function finish(building: Building, index: number): DraftQuestion[] {
   // paper can group them again through a section. Only split when the stem is
   // pure scaffolding, so a maths question keeps "Solve the following:" over
   // its parts.
-  const product = MARKS_PRODUCT.exec(text)
   const splittable =
     !isMcq &&
     building.options.length >= 2 &&
