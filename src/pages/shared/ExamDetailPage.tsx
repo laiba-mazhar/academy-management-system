@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
@@ -7,11 +7,12 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { ExamPaperPrintTarget, ExamPaperSheet } from '@/components/ExamPaperSheet'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
 import { PaperBuilder } from '@/components/PaperBuilder'
+import { SymbolPad } from '@/components/SymbolPad'
 import { QUESTION_TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import { formatDate, formatDateTime, percentage, toPakistaniMsisdn } from '@/lib/utils'
 import { edgeFunctionError, friendlyError } from '@/lib/errors'
 import { downloadQuestionPaperPdf } from '@/lib/pdf'
-import { paperMarks, type PaperPart, type QuestionPaper } from '@/lib/examPaper'
+import { paperMarks, usesArabicScript, type PaperPart, type QuestionPaper } from '@/lib/examPaper'
 import type {
   Class,
   Exam,
@@ -54,6 +55,7 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   const [addQuestionError, setAddQuestionError] = useState<string | null>(null)
   const [addingQuestion, setAddingQuestion] = useState(false)
   const [downloadingPaper, setDownloadingPaper] = useState(false)
+  const newQuestionRef = useRef<HTMLTextAreaElement>(null)
 
   const marksDirty = JSON.stringify(results) !== JSON.stringify(savedResults)
 
@@ -168,6 +170,11 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
   // What the paper is actually worth. A section with a choice contributes only
   // the questions a student can attempt, not every one printed.
   const selectedMarksTotal = useMemo(() => paperMarks(paperParts), [paperParts])
+
+  // Urdu and Arabic need letter-joining and right-to-left layout that the PDF
+  // writer cannot do; the browser's print engine can. Rather than hand back a
+  // broken file, the desk is told which button to use.
+  const arabicScript = useMemo(() => usesArabicScript(paperParts), [paperParts])
 
   // Marks Entry stays reachable once results already exist, even if every
   // paper question later gets deselected — otherwise previously saved marks
@@ -426,11 +433,19 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
                 </Field>
                 <Field label="Question text">
                   <Textarea
+                    ref={newQuestionRef}
                     value={newQuestion.question_text}
                     onChange={(e) => setNewQuestion({ ...newQuestion, question_text: e.target.value })}
                     rows={2}
                     placeholder={'Multi-part questions: put each part on its own line.\nSolve the following:\na) 4/7 - 5/14'}
                   />
+                  <div className="mt-2">
+                    <SymbolPad
+                      targetRef={newQuestionRef}
+                      value={newQuestion.question_text}
+                      onChange={(question_text) => setNewQuestion({ ...newQuestion, question_text })}
+                    />
+                  </div>
                 </Field>
                 {newQuestion.question_type === 'mcq' && (
                   <Field label="Options">
@@ -496,13 +511,21 @@ export function ExamDetailPage({ basePath }: { basePath: string }) {
           </div>
 
           <div>
-            <div className="no-print mb-2 flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => window.print()}>
-                Print Paper
-              </Button>
-              <Button onClick={handleDownloadPaper} disabled={downloadingPaper}>
-                {downloadingPaper ? 'Preparing...' : 'Download PDF'}
-              </Button>
+            <div className="no-print mb-2 space-y-2">
+              {arabicScript && (
+                <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200">
+                  This paper is in Urdu or Arabic. Use <strong>Print Paper</strong> and choose “Save as PDF” — the
+                  download button cannot join the letters correctly.
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={() => window.print()}>
+                  Print Paper
+                </Button>
+                <Button onClick={handleDownloadPaper} disabled={downloadingPaper || arabicScript}>
+                  {downloadingPaper ? 'Preparing...' : 'Download PDF'}
+                </Button>
+              </div>
             </div>
             {/* The preview shrinks the sheet with `zoom` rather than a
                 transform, because zoom collapses the layout box with it — a
