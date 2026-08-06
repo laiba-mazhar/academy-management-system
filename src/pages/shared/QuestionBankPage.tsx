@@ -21,6 +21,8 @@ export function QuestionBankPage() {
   const [subjectFilter, setSubjectFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState<'all' | QuestionType>('all')
   const [showImport, setShowImport] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState('all')
+  const [purgeSource, setPurgeSource] = useState<string | null>(null)
 
   const [form, setForm] = useState<{
     id: string | null
@@ -57,10 +59,19 @@ export function QuestionBankPage() {
   const subjectById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
 
+  // Every imported question records the file it came from, which is what makes
+  // a bad import undoable — an OCR run in the wrong language can otherwise
+  // leave dozens of rows of noise to delete one at a time.
+  const sources = useMemo(
+    () => [...new Set(questions.map((q) => q.source).filter((s): s is string => !!s))].sort(),
+    [questions]
+  )
+
   const filtered = questions.filter(
     (q) =>
       (subjectFilter === 'all' || q.subject_id === subjectFilter) &&
-      (typeFilter === 'all' || q.question_type === typeFilter)
+      (typeFilter === 'all' || q.question_type === typeFilter) &&
+      (sourceFilter === 'all' || q.source === sourceFilter)
   )
 
   function openCreate() {
@@ -126,6 +137,19 @@ export function QuestionBankPage() {
     load()
   }
 
+  // Undoes one import wholesale, matched on the recorded source file.
+  async function handlePurgeSource() {
+    if (!purgeSource) return
+    const { error } = await supabase.from('questions').delete().eq('source', purgeSource)
+    if (error) show(error.message, 'error')
+    else {
+      show('Imported questions deleted.')
+      setSourceFilter('all')
+      load()
+    }
+    setPurgeSource(null)
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return
     const { error } = await supabase.from('questions').delete().eq('id', deleteTarget.id)
@@ -163,6 +187,21 @@ export function QuestionBankPage() {
             </option>
           ))}
         </Select>
+        {sources.length > 0 && (
+          <Select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="max-w-[16rem]">
+            <option value="all">Any source</option>
+            {sources.map((src) => (
+              <option key={src} value={src}>
+                {src}
+              </option>
+            ))}
+          </Select>
+        )}
+        {sourceFilter !== 'all' && (
+          <Button variant="danger" onClick={() => setPurgeSource(sourceFilter)}>
+            Delete all {filtered.length} from this import
+          </Button>
+        )}
         <Select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as 'all' | QuestionType)}
@@ -302,6 +341,17 @@ export function QuestionBankPage() {
           existing={questions}
           onClose={() => setShowImport(false)}
           onSaved={load}
+        />
+      )}
+
+      {purgeSource && (
+        <ConfirmDialog
+          title="Delete a whole import"
+          message={`Delete every question imported from “${purgeSource}”? This removes them from the bank and from any exam papers using them.`}
+          confirmLabel="Delete them"
+          danger
+          onCancel={() => setPurgeSource(null)}
+          onConfirm={handlePurgeSource}
         />
       )}
 

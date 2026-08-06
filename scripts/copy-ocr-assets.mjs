@@ -27,9 +27,15 @@ const files = [
   ['tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js', 'tesseract-core-relaxedsimd-lstm.wasm.js'],
   ['tesseract.js-core/tesseract-core-simd-lstm.wasm.js', 'tesseract-core-simd-lstm.wasm.js'],
   ['tesseract.js-core/tesseract-core-lstm.wasm.js', 'tesseract-core-lstm.wasm.js'],
-  // The integerised "best" model: a third the size of the full one for
-  // materially better accuracy than the fast model on printed text.
+  // The integerised "best" models: a third the size of the full ones for
+  // materially better accuracy than the fast models on printed text.
+  //
+  // Urdu and Arabic are here because running the English model over Arabic
+  // script does not fail — it matches Latin letter shapes to Arabic glyphs and
+  // returns confident nonsense, which is far worse than an error.
   ['@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', 'eng.traineddata.gz'],
+  ['@tesseract.js-data/urd/4.0.0_best_int/urd.traineddata.gz', 'urd.traineddata.gz'],
+  ['@tesseract.js-data/ara/4.0.0_best_int/ara.traineddata.gz', 'ara.traineddata.gz'],
 ]
 
 export async function copyOcrAssets() {

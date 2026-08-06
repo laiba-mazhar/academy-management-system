@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { extractPdfText, ScannedPdfError } from '@/lib/pdfText'
-import { ocrPdf, type OcrProgress } from '@/lib/pdfOcr'
+import { ocrPdf, OcrGibberishError, OCR_LANGUAGES, type OcrLanguage, type OcrProgress } from '@/lib/pdfOcr'
 import { dedupeKey, parseQuestions, type DraftQuestion } from '@/lib/questionParser'
 import { QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
@@ -48,12 +48,14 @@ export function QuestionImport({
   const [drafts, setDrafts] = useState<DraftQuestion[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sectionsFound, setSectionsFound] = useState(false)
+  const [exercisesOnly, setExercisesOnly] = useState(false)
   const [bulkChapter, setBulkChapter] = useState('')
   const [bulkMarks, setBulkMarks] = useState('')
   // Held so the "read it anyway" button can retry the same file with OCR
   // without asking the teacher to pick it again.
   const [scannedFile, setScannedFile] = useState<File | null>(null)
   const [ocr, setOcr] = useState<OcrProgress | null>(null)
+  const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>('eng')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
@@ -78,7 +80,11 @@ export function QuestionImport({
   function runParse(text: string, source: string) {
     const result = parseQuestions(text)
     if (result.drafts.length === 0) {
-      setError('No questions were recognised in that text. Check it looks like a question paper, or add questions manually.')
+      setError(
+        result.exercisesOnly
+          ? 'The exercises in that document turned out to be empty. Check the pages you imported actually contain the exercise questions.'
+          : 'No questions were recognised in that text. Check it looks like a question paper, or add questions manually.'
+      )
       return
     }
     // Anything the parser guessed at goes to the top, so a teacher checks six
@@ -87,6 +93,7 @@ export function QuestionImport({
     setDrafts(ordered.map((d) => ({ ...d, chapter: d.chapter || '' })))
     setSelected(new Set())
     setSectionsFound(result.sectionsFound)
+    setExercisesOnly(result.exercisesOnly)
     setFileName(source)
     setError(null)
     setStep('review')
@@ -117,7 +124,7 @@ export function QuestionImport({
     setBusy(true)
     setError(null)
     try {
-      const text = await ocrPdf(scannedFile, setOcr)
+      const text = await ocrPdf(scannedFile, ocrLanguage, setOcr)
       if (text.trim().length < 20) {
         setError('Text recognition found almost nothing. The scan may be too faint or too skewed — try a clearer copy.')
         return
@@ -125,7 +132,13 @@ export function QuestionImport({
       runParse(text, scannedFile.name)
       setScannedFile(null)
     } catch (err) {
-      setError(`Text recognition failed. ${err instanceof Error ? err.message : ''}`.trim())
+      // Kept on the scan panel rather than replacing it, so the language can be
+      // changed and the same file retried without picking it again.
+      setError(
+        err instanceof OcrGibberishError
+          ? err.message
+          : `Text recognition failed. ${err instanceof Error ? err.message : ''}`.trim()
+      )
     } finally {
       setOcr(null)
       setBusy(false)
@@ -271,7 +284,8 @@ export function QuestionImport({
               <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90">
                 There is no text in this PDF — it is a picture of a paper. Text recognition can read it, but it takes
                 a few seconds a page and is less accurate than a Word-exported PDF, so check the questions carefully
-                afterwards.
+                afterwards. Pick the language the paper is written in — Urdu and Arabic results are rough, and a
+                handwritten page will not read at all.
               </p>
               {ocr ? (
                 <div className="mt-2">
@@ -288,7 +302,23 @@ export function QuestionImport({
                   </div>
                 </div>
               ) : (
-                <div className="mt-2 flex gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {/* The wrong model over Arabic script returns confident
+                      nonsense rather than an error, so the language is chosen
+                      before recognition rather than guessed. */}
+                  <div className="w-32">
+                    <Select
+                      value={ocrLanguage}
+                      onChange={(e) => setOcrLanguage(e.target.value as OcrLanguage)}
+                      aria-label="Language of the paper"
+                    >
+                      {OCR_LANGUAGES.map((l) => (
+                        <option key={l.code} value={l.code}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                   <Button onClick={handleOcr} disabled={busy}>
                     Read it with text recognition
                   </Button>
@@ -330,6 +360,11 @@ export function QuestionImport({
             <span className="text-slate-400 dark:text-slate-500">
               {sectionsFound ? 'Types read from the paper’s own sections' : 'No sections found — types were guessed'}
             </span>
+            {exercisesOnly && (
+              <span className="text-slate-500 dark:text-slate-400">
+                Textbook — only the exercises were read, not the lesson text
+              </span>
+            )}
           </div>
 
           {/* Past papers carry no chapter and no difficulty, so tagging is the

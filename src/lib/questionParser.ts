@@ -28,6 +28,44 @@ export interface ParseResult {
   drafts: DraftQuestion[]
   /** True when the document announced its own sections, i.e. a good parse. */
   sectionsFound: boolean
+  /** True when only the exercises of a textbook were taken. */
+  exercisesOnly: boolean
+}
+
+// A textbook is mostly not questions. Explanation, worked examples and
+// definitions all sit above the exercise that actually asks something, and
+// importing a chapter wholesale drags them in.
+//
+// So when a document announces exercises, only the exercises are read. A past
+// paper announces none, and is read whole exactly as before — which is what
+// keeps this from changing the case that already worked.
+const EXERCISE_START = /^\s*(?:review\s+|practice\s+|unit\s+)?(?:exercise|exercises|worksheet)\b|^\s*مشق/i
+// "2.4 Adding Rational Numbers" — a numbered chapter heading, not a question,
+// which "4." at the start of a line would otherwise look like.
+const SECTION_HEADING = /^\s*\d+\.\d+(?:\.\d+)?\s+\p{L}/u
+// Prose blocks a textbook puts between exercises.
+const PROSE_BLOCK =
+  /^\s*(example|solution|summary|activity|key\s*points?|note|remember|definition|introduction|objectives)\b/i
+
+function keepExercisesOnly(lines: string[]): { lines: string[]; filtered: boolean } {
+  const startsAt = lines.findIndex((l) => EXERCISE_START.test(l))
+  if (startsAt === -1) return { lines, filtered: false }
+
+  const kept: string[] = []
+  let inExercise = false
+  for (const line of lines) {
+    if (EXERCISE_START.test(line)) {
+      inExercise = true
+      continue // the heading itself is not a question
+    }
+    // A chapter heading or a worked example closes the exercise above it.
+    if (inExercise && (SECTION_HEADING.test(line) || PROSE_BLOCK.test(line))) {
+      inExercise = false
+      continue
+    }
+    if (inExercise) kept.push(line)
+  }
+  return { lines: kept, filtered: true }
 }
 
 // "SECTION A", "OBJECTIVE", "Short Questions" … A paper that labels its own
@@ -120,7 +158,7 @@ interface Building {
 }
 
 export function parseQuestions(raw: string): ParseResult {
-  const lines = normalise(raw)
+  const { lines, filtered: exercisesOnly } = keepExercisesOnly(normalise(raw))
   // A paper that writes "Qno:" uses bare "1)" for sub-parts, so bare numbers
   // must not start questions there. Decided once for the whole document.
   const usesExplicitMarkers = lines.some((l) => EXPLICIT_Q.test(l))
@@ -196,7 +234,7 @@ export function parseQuestions(raw: string): ParseResult {
   }
 
   flush()
-  return { drafts, sectionsFound }
+  return { drafts, sectionsFound, exercisesOnly }
 }
 
 function finish(building: Building, index: number): DraftQuestion | null {
