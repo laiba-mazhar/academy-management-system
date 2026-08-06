@@ -104,6 +104,18 @@ const INLINE_OPTIONS = /\(?\b([a-hA-H])\)\s*/g
 const TRAILING_MARKS = /[([]\s*(\d+(?:\.\d+)?)\s*(?:marks?)?\s*[)\]]\s*$/i
 // "Attempt any six questions" — an instruction, not a question.
 const INSTRUCTION = /^\s*(attempt|answer)\s+(any|all)\b/i
+// "Name: Roll#: Class: Inter Part-II Subject: English-12 Date: Time:" — the
+// particulars strip off the top of a paper. Several "Label:" pairs on one line
+// is what distinguishes it from a question that merely contains a colon, and
+// matching on that rather than on position means it is dropped even when a PDF
+// holds several papers back to back, each with its own header.
+const PARTICULARS = /(?:\b[A-Za-z#]+\s*:\s*){3,}/
+// "(3x2=6)" — three parts worth two marks each. The per-part figure is what a
+// split sub-question should carry.
+const MARKS_PRODUCT = /\(\s*(\d{1,2})\s*[x×*]\s*(\d+(?:\.\d+)?)\s*=\s*\d+(?:\.\d+)?\s*\)/i
+// A stem whose only job is to introduce its sub-parts. When the parts are
+// split out, nothing of value is lost by dropping it.
+const DIRECTIVE_STEM = /\b(answer|attempt|solve|do|write)\b.{0,40}\b(given|following|these)\b/i
 
 function normalise(raw: string): string[] {
   return raw
@@ -142,11 +154,29 @@ function splitInlineOptions(line: string): QuestionOption[] | null {
   return options.length >= 3 ? options : null
 }
 
+// Splitting suits sub-parts that are whole questions ("Why is the universe so
+// frightening?"). It does not suit the parts of a maths question — "4/7 - 5/14"
+// on its own has lost the "Solve" that gave it meaning. Length and a question
+// mark separate the two reliably.
+function partsLookLikeQuestions(options: QuestionOption[]): boolean {
+  const questionMarks = options.filter((o) => o.text.trim().endsWith('?')).length
+  const meanLength = options.reduce((sum, o) => sum + o.text.length, 0) / options.length
+  return questionMarks >= options.length / 2 || meanLength >= 25
+}
+
+// "i) ii) iii)" numbers sub-questions; "a) b) c) d)" offers alternatives. A
+// roman sequence is never a set of MCQ choices, and treating it as one both
+// mistyped the question and threw its sub-parts away.
+function isRomanSequence(options: QuestionOption[]): boolean {
+  return options.some((o) => /^(?:II|III|IV|VI{0,3}|IX)$/i.test(o.key))
+}
+
 // MCQ choices are a handful of short alternatives. Sub-parts of a maths
 // question ("a) 4/7 - 5/14") share the same shape, so length and count are
 // what separate them when no section header settled it.
 function looksLikeMcqOptions(options: QuestionOption[]): boolean {
   if (options.length < 3 || options.length > 5) return false
+  if (isRomanSequence(options)) return false
   return options.every((o) => o.text.length <= 60)
 }
 
@@ -171,8 +201,7 @@ export function parseQuestions(raw: string): ParseResult {
 
   function flush() {
     if (!current) return
-    const built = finish(current, drafts.length)
-    if (built) drafts.push(built)
+    drafts.push(...finish(current, drafts.length))
     current = null
   }
 
@@ -185,7 +214,7 @@ export function parseQuestions(raw: string): ParseResult {
       continue
     }
 
-    if (INSTRUCTION.test(line)) {
+    if (INSTRUCTION.test(line) || PARTICULARS.test(line)) {
       flush()
       continue
     }
@@ -237,32 +266,63 @@ export function parseQuestions(raw: string): ParseResult {
   return { drafts, sectionsFound, exercisesOnly }
 }
 
-function finish(building: Building, index: number): DraftQuestion | null {
+function finish(building: Building, index: number): DraftQuestion[] {
   const text = building.lines.join(' ').trim()
-  if (!text && building.options.length === 0) return null
+  if (!text && building.options.length === 0) return []
 
   const { type, reason, uncertain } = classify(building, text)
-
-  // Only an MCQ keeps its options as options. Everywhere else they were the
-  // sub-parts of the question, so they fold back into the text as the newline
-  // form the exam paper renderer already understands.
   const isMcq = type === 'mcq'
+
+  // "Answer the given questions… i) … ii) … iii)" is three questions wearing
+  // one number. A bank wants them apart: each is independently reusable, and a
+  // paper can group them again through a section. Only split when the stem is
+  // pure scaffolding, so a maths question keeps "Solve the following:" over
+  // its parts.
+  const product = MARKS_PRODUCT.exec(text)
+  const splittable =
+    !isMcq &&
+    building.options.length >= 2 &&
+    (product !== null || DIRECTIVE_STEM.test(text)) &&
+    partsLookLikeQuestions(building.options)
+
+  if (splittable) {
+    const perPart = product ? product[2] : building.marks || defaultMarks(type)
+    // The whole question's type described the whole question. Two marks apiece
+    // makes each split part a short question, whatever the parent looked like.
+    const partType = typeForMarks(Number(perPart), type)
+    return building.options.map((part, i) => ({
+      key: `draft-${index}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+      questionType: partType,
+      text: part.text,
+      options: [],
+      marks: perPart,
+      chapter: '',
+      difficulty: '',
+      reason: product ? `Split — ${product[2]} marks each` : 'Split from a list',
+      uncertain: false,
+    }))
+  }
+
+  // Not split: the parts fold back into the text as the newline form the exam
+  // paper renderer already understands.
   const body =
     isMcq || building.options.length === 0
       ? text
       : [text, ...building.options.map((o) => `${o.key.toLowerCase()}) ${o.text}`)].filter(Boolean).join('\n')
 
-  return {
-    key: `draft-${index}-${Math.random().toString(36).slice(2, 8)}`,
-    questionType: type,
-    text: body,
-    options: isMcq ? building.options : [],
-    marks: building.marks || defaultMarks(type),
-    chapter: '',
-    difficulty: '',
-    reason,
-    uncertain,
-  }
+  return [
+    {
+      key: `draft-${index}-${Math.random().toString(36).slice(2, 8)}`,
+      questionType: type,
+      text: body,
+      options: isMcq ? building.options : [],
+      marks: building.marks || defaultMarks(type),
+      chapter: '',
+      difficulty: '',
+      reason,
+      uncertain,
+    },
+  ]
 }
 
 function classify(building: Building, text: string): { type: QuestionType; reason: string; uncertain: boolean } {
@@ -302,6 +362,13 @@ function classify(building: Building, text: string): { type: QuestionType; reaso
   }
 
   return { type: 'short', reason: 'Short single question', uncertain: true }
+}
+
+function typeForMarks(marks: number, fallback: QuestionType): QuestionType {
+  if (!Number.isFinite(marks) || marks <= 0) return fallback
+  if (marks <= 1) return 'short'
+  if (marks >= 5) return 'long'
+  return 'short'
 }
 
 function defaultMarks(type: QuestionType): string {
