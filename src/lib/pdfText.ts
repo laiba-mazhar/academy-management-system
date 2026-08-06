@@ -9,7 +9,7 @@ import { stripRunningHeaders } from '@/lib/questionParser'
 export class ScannedPdfError extends Error {
   constructor() {
     super(
-      'This PDF has no text in it — it looks like a scan or a photo. Use the "Paste text" tab instead, or export the paper from Word as a PDF.'
+      'This PDF has no text in it — it is a scan or a photo rather than a document.'
     )
     this.name = 'ScannedPdfError'
   }

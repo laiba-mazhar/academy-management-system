@@ -23,6 +23,30 @@ export interface OcrProgress {
   note: string
 }
 
+export class OcrAssetsMissingError extends Error {
+  constructor() {
+    super(
+      'Text recognition is not available in this deployment — its files are missing. Rebuild and redeploy the app, then try again.'
+    )
+    this.name = 'OcrAssetsMissingError'
+  }
+}
+
+// The app answers index.html to any unknown path (the SPA rewrite), so a
+// deployment built without the recognition assets returns a page of HTML with
+// status 200 where Tesseract expects JavaScript. Checking first turns that
+// into a sentence someone can act on instead of a stack trace from a worker.
+async function assertAssetsPresent(assets: string) {
+  try {
+    const res = await fetch(`${assets}worker.min.js`, { method: 'GET' })
+    const type = res.headers.get('content-type') ?? ''
+    if (!res.ok || type.includes('text/html')) throw new OcrAssetsMissingError()
+  } catch (err) {
+    if (err instanceof OcrAssetsMissingError) throw err
+    throw new OcrAssetsMissingError()
+  }
+}
+
 export async function ocrPdf(file: File, onProgress: (p: OcrProgress) => void): Promise<string> {
   const { createWorker } = await import('tesseract.js')
   const doc = await loadPdf(file)
@@ -33,6 +57,7 @@ export async function ocrPdf(file: File, onProgress: (p: OcrProgress) => void): 
   // default is a public CDN, which simply fails on a network that blocks it —
   // and there is no reason a school's question papers should depend on one.
   const assets = `${import.meta.env.BASE_URL}tesseract/`
+  await assertAssetsPresent(assets)
 
   const worker = await createWorker('eng', 1, {
     workerPath: `${assets}worker.min.js`,
