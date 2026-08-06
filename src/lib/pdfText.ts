@@ -1,3 +1,4 @@
+import { stripRunningHeaders } from '@/lib/questionParser'
 // Reads the text out of a past paper PDF, entirely in the browser — the file
 // is never uploaded anywhere.
 //
@@ -68,7 +69,7 @@ export async function extractPdfText(file: File): Promise<string> {
     await doc.destroy()
   }
 
-  const text = pages.join('\n')
+  const text = stripRunningHeaders(pages).join('\n')
   if (text.replace(/\s/g, '').length < MIN_CHARS_PER_PAGE * doc.numPages) {
     throw new ScannedPdfError()
   }

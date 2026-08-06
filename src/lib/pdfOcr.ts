@@ -1,4 +1,5 @@
 import { loadPdf } from '@/lib/pdfText'
+import { stripRunningHeaders } from '@/lib/questionParser'
 
 // Reading a scanned past paper — a photocopy or a photograph, with no text
 // layer for pdfText to find. Each page is rendered to a canvas and put through
@@ -79,5 +80,5 @@ export async function ocrPdf(file: File, onProgress: (p: OcrProgress) => void): 
     await doc.destroy()
   }
 
-  return pages.join('\n')
+  return stripRunningHeaders(pages).join('\n')
 }

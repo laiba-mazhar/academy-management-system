@@ -49,6 +49,7 @@ export function QuestionImport({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sectionsFound, setSectionsFound] = useState(false)
   const [bulkChapter, setBulkChapter] = useState('')
+  const [bulkMarks, setBulkMarks] = useState('')
   // Held so the "read it anyway" button can retry the same file with OCR
   // without asking the teacher to pick it again.
   const [scannedFile, setScannedFile] = useState<File | null>(null)
@@ -362,6 +363,27 @@ export function QuestionImport({
                 variant="secondary"
                 disabled={selected.size === 0 || !bulkChapter.trim()}
                 onClick={() => applyToSelected({ chapter: bulkChapter.trim() })}
+              >
+                Set
+              </Button>
+            </div>
+            {/* A textbook exercise carries no marks at all, so setting them one
+                row at a time is the slowest part of importing one. */}
+            <div className="flex items-center gap-1">
+              <div className="w-20">
+                <Input
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  value={bulkMarks}
+                  onChange={(e) => setBulkMarks(e.target.value)}
+                  placeholder="Marks"
+                />
+              </div>
+              <Button
+                variant="secondary"
+                disabled={selected.size === 0 || !(Number(bulkMarks) > 0)}
+                onClick={() => applyToSelected({ marks: bulkMarks })}
               >
                 Set
               </Button>

@@ -272,6 +272,56 @@ function defaultMarks(type: QuestionType): string {
   return '2'
 }
 
+// A textbook repeats a running head or foot on every page — "Mathematics 7 45",
+// "Chapter 2 — Rational Numbers". OCR has no idea those are furniture, so they
+// end up glued to whatever question sits nearest the edge of the page.
+//
+// They are recognised by repetition rather than by pattern: a short line at the
+// top or bottom of two or more pages, identical once its page number is
+// removed, is furniture. That cannot misfire on a one-off line, which a real
+// question always is.
+const MAX_RUNNING_HEAD = 60
+
+function headKey(line: string): string {
+  return line
+    .toLowerCase()
+    .replace(/[0-9]+/g, '')
+    .replace(/[^a-z\u0600-\u06FF]+/g, '')
+}
+
+export function stripRunningHeaders(pages: string[]): string[] {
+  if (pages.length < 2) return pages
+
+  const seen = new Map<string, number>()
+  const edgesOf = (page: string) => {
+    const lines = page.split('\n').map((l) => l.trim()).filter(Boolean)
+    return [...lines.slice(0, 2), ...lines.slice(-2)]
+  }
+
+  for (const page of pages) {
+    // Per page, so a head appearing twice on one page still counts once.
+    const keys = new Set(
+      edgesOf(page)
+        .filter((l) => l.length <= MAX_RUNNING_HEAD)
+        .map(headKey)
+        .filter((k) => k.length >= 3)
+    )
+    for (const key of keys) seen.set(key, (seen.get(key) ?? 0) + 1)
+  }
+
+  const furniture = new Set([...seen].filter(([, n]) => n >= 2).map(([key]) => key))
+  if (furniture.size === 0) return pages
+
+  return pages.map((page) => {
+    const lines = page.split('\n').map((l) => l.trim()).filter(Boolean)
+    const isFurniture = (i: number) =>
+      (i < 2 || i >= lines.length - 2) &&
+      lines[i].length <= MAX_RUNNING_HEAD &&
+      furniture.has(headKey(lines[i]))
+    return lines.filter((_, i) => !isFurniture(i)).join('\n')
+  })
+}
+
 // Two questions imported from ten years of past papers are very often the same
 // question with different spacing or punctuation. Comparing on a stripped form
 // catches those without needing anything cleverer.
