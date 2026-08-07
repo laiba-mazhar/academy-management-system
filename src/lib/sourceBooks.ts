@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { edgeFunctionError } from '@/lib/errors'
 import { loadPdf } from '@/lib/pdfText'
 import type { Crop, PageTextItem, SourceBookPage } from '@/types/database'
 
@@ -173,6 +174,71 @@ export async function signPages(pages: SourceBookPage[], seconds = 3600): Promis
     if (entry.signedUrl) urls.set(pages[i].id, entry.signedUrl)
   })
   return urls
+}
+
+// Page pictures are fetched once and reused: a paper can take several snips
+// off the same page, and a teacher reading two regions in a row should not wait
+// for the same download twice.
+const pageImageCache = new Map<string, Promise<HTMLImageElement>>()
+
+function loadPageImage(url: string): Promise<HTMLImageElement> {
+  const cached = pageImageCache.get(url)
+  if (cached) return cached
+  const p = new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    // Storage answers with permissive CORS headers, and without this the canvas
+    // would be tainted — no data URL out of it, so no snip and no AI read.
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Could not load that book page.'))
+    img.src = url
+  })
+  pageImageCache.set(url, p)
+  return p
+}
+
+// Cuts a fractional crop out of a page picture. Shared by the paper builder,
+// which embeds the result, and by the AI reader, which sends it off to be read.
+export async function cropToDataUrl(
+  url: string,
+  crop: Crop,
+  quality = 0.85
+): Promise<{ dataUrl: string; aspect: number }> {
+  const img = await loadPageImage(url)
+  const sx = crop.x * img.naturalWidth
+  const sy = crop.y * img.naturalHeight
+  const sw = crop.w * img.naturalWidth
+  const sh = crop.h * img.naturalHeight
+
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(Math.round(sw), 1)
+  canvas.height = Math.max(Math.round(sh), 1)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('This browser could not prepare the book image.')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+  return { dataUrl: canvas.toDataURL('image/jpeg', quality), aspect: canvas.height / canvas.width }
+}
+
+// A true scan has no text layer to take characters from, so the only way to get
+// real Urdu, real notation, real anything out of it is to have something read
+// the picture. That happens server-side, in the read-snip edge function,
+// because it needs an API key that must never reach the browser.
+//
+// Returns '' when the model found nothing legible in the region.
+export async function readCropWithAi(imageUrl: string, crop: Crop): Promise<string> {
+  // Slightly gentler compression than the printing path: JPEG artefacts around
+  // Urdu diacritics cost accuracy, and this image is read, not printed.
+  const { dataUrl } = await cropToDataUrl(imageUrl, crop, 0.92)
+  const imageBase64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+
+  const { data, error } = await supabase.functions.invoke('read-snip', { body: { imageBase64 } })
+  if (error) throw new Error(await edgeFunctionError(error, 'Could not read that region.'))
+
+  const result = data as { text?: string; empty?: boolean; error?: string } | null
+  if (result?.error) throw new Error(result.error)
+  return result?.text ?? ''
 }
 
 // Crops are stored as fractions of the page, so they stay correct whatever

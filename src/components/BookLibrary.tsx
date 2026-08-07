@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
-import { signPages, textInCrop, uploadBook, type UploadProgress } from '@/lib/sourceBooks'
+import { readCropWithAi, signPages, textInCrop, uploadBook, type UploadProgress } from '@/lib/sourceBooks'
 import { QUESTION_TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import type { Class, Crop, QuestionType, SourceBook, SourceBookPage, Subject } from '@/types/database'
 
@@ -243,6 +243,7 @@ function BookViewer({
   // across a column can pick up a stray word from the next one.
   const [snipText, setSnipText] = useState('')
   const [edited, setEdited] = useState(false)
+  const [reading, setReading] = useState(false)
   const imageRef = useRef<HTMLDivElement>(null)
 
   const page = pages[index]
@@ -305,6 +306,34 @@ function BookViewer({
       w: Math.abs(p.x - dragFrom.x),
       h: Math.abs(p.y - dragFrom.y),
     })
+  }
+
+  // Only offered on a true scan: where the page has its own text layer the
+  // characters are already exact, and asking a model to re-read them could only
+  // make them worse.
+  async function readWithAi() {
+    const url = page ? urls.get(page.id) : undefined
+    if (!page || !url || !crop || crop.w < 0.02 || crop.h < 0.01) {
+      show('Drag a box around the question first.', 'error')
+      return
+    }
+    setReading(true)
+    try {
+      const text = await readCropWithAi(url, crop)
+      if (!text) {
+        show('Nothing legible was found in that box. Try drawing it a little wider.', 'error')
+        return
+      }
+      // Marking it edited stops the text-layer effect from clearing what the
+      // model just read back.
+      setEdited(true)
+      setSnipText(text)
+      show('Read. Check it against the page before adding.')
+    } catch (err) {
+      show(err instanceof Error ? err.message : 'Could not read that region.', 'error')
+    } finally {
+      setReading(false)
+    }
   }
 
   async function saveSnip() {
@@ -405,26 +434,38 @@ function BookViewer({
             </div>
 
             <div className="min-w-[15rem] flex-1 space-y-3">
-              {hasTextLayer ? (
-                <Field label="Question text (taken from the page)">
-                  <Textarea
-                    rows={5}
-                    value={snipText}
-                    placeholder="Drag a box on the page to pull its text in."
-                    onChange={(e) => {
-                      setEdited(true)
-                      setSnipText(e.target.value)
-                    }}
-                  />
-                </Field>
-              ) : (
-                <Field label="Label (for finding it later)">
-                  <Input
-                    value={form.label}
-                    placeholder="Exercise 3.2 Q4"
-                    onChange={(e) => setForm({ ...form, label: e.target.value })}
-                  />
-                </Field>
+              <Field label={hasTextLayer ? 'Question text (taken from the page)' : 'Question text'}>
+                <Textarea
+                  rows={5}
+                  value={snipText}
+                  placeholder={
+                    hasTextLayer
+                      ? 'Drag a box on the page to pull its text in.'
+                      : 'Drag a box, then press “Read with AI” — or leave this blank to keep the snip as a picture.'
+                  }
+                  onChange={(e) => {
+                    setEdited(true)
+                    setSnipText(e.target.value)
+                  }}
+                />
+              </Field>
+              {!hasTextLayer && (
+                <>
+                  <Button
+                    variant="secondary"
+                    onClick={readWithAi}
+                    disabled={reading || !crop || crop.w < 0.02}
+                  >
+                    {reading ? 'Reading…' : 'Read with AI'}
+                  </Button>
+                  <Field label="Label (used if it stays a picture)">
+                    <Input
+                      value={form.label}
+                      placeholder="Exercise 3.2 Q4"
+                      onChange={(e) => setForm({ ...form, label: e.target.value })}
+                    />
+                  </Field>
+                </>
               )}
               <Field label="Type">
                 <Select
@@ -458,7 +499,7 @@ function BookViewer({
               <p className="text-xs text-slate-400 dark:text-slate-500">
                 {hasTextLayer
                   ? 'This book carries its own text, so the words above are the book’s own — Urdu stays Urdu, notation stays notation. Correct anything the box caught by mistake before adding.'
-                  : 'This page is a true scan with no text in it, so the snip is stored as a picture. It prints exactly as it appears here.'}
+                  : 'This page is a true scan with no text in it. “Read with AI” transcribes the box in its own script — Urdu as Urdu, notation as notation — for you to check and correct. Leave the text empty and the snip is stored as a picture instead, printing exactly as it appears here.'}
               </p>
             </div>
           </div>
