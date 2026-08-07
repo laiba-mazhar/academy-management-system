@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { loadPdf } from '@/lib/pdfText'
-import type { Crop, SourceBookPage } from '@/types/database'
+import type { Crop, PageTextItem, SourceBookPage } from '@/types/database'
 
 export const BOOK_BUCKET = 'book-pages'
 
@@ -8,6 +8,74 @@ export const BOOK_BUCKET = 'book-pages'
 // original size, without making a 200-page book unreasonable to store.
 const PAGE_WIDTH = 1400
 const JPEG_QUALITY = 0.82
+
+// Most books that look scanned are really digital PDFs whose text is right
+// there in the file. Capturing it at upload means snipping a region can hand
+// back the real characters — exact Urdu, exact notation — with no recognition
+// step to corrupt them. Positions are fractions of the page so a crop dragged
+// at any display size can be matched against them.
+async function pageTextItems(page: {
+  getTextContent: () => Promise<{ items: unknown[] }>
+  getViewport: (o: { scale: number }) => { width: number; height: number }
+}): Promise<PageTextItem[]> {
+  const view = page.getViewport({ scale: 1 })
+  const content = await page.getTextContent()
+  const items: PageTextItem[] = []
+
+  for (const raw of content.items) {
+    const item = raw as { str?: string; transform?: number[]; width?: number; height?: number }
+    if (!item.str?.trim() || !item.transform) continue
+    const x = item.transform[4]
+    // PDF y counts up from the bottom; everything else here counts down.
+    const yTop = view.height - item.transform[5] - (item.height ?? 0)
+    items.push({
+      t: item.str,
+      x: x / view.width,
+      y: yTop / view.height,
+      w: (item.width ?? 0) / view.width,
+      h: (item.height ?? 0) / view.height,
+    })
+  }
+  return items
+}
+
+// Lines are rebuilt by vertical position, and read right-to-left when the line
+// is Arabic script — joining those left-to-right would reverse the words.
+const LINE_TOLERANCE = 0.006
+const ARABIC = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/
+
+export function textInCrop(items: PageTextItem[] | null, crop: Crop): string {
+  if (!items || items.length === 0) return ''
+
+  // An item counts as inside when its middle is, so a box drawn slightly tight
+  // around a line still catches it.
+  const inside = items.filter((it) => {
+    const cx = it.x + it.w / 2
+    const cy = it.y + it.h / 2
+    return cx >= crop.x && cx <= crop.x + crop.w && cy >= crop.y && cy <= crop.y + crop.h
+  })
+  if (inside.length === 0) return ''
+
+  const lines: PageTextItem[][] = []
+  for (const item of [...inside].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const line = lines[lines.length - 1]
+    if (line && Math.abs(line[0].y - item.y) <= LINE_TOLERANCE) line.push(item)
+    else lines.push([item])
+  }
+
+  return lines
+    .map((line) => {
+      const rtl = line.some((it) => ARABIC.test(it.t))
+      const ordered = [...line].sort((a, b) => (rtl ? b.x - a.x : a.x - b.x))
+      return ordered
+        .map((it) => it.t)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    })
+    .filter(Boolean)
+    .join('\n')
+}
 
 export interface UploadProgress {
   page: number
@@ -61,12 +129,16 @@ export async function uploadBook(
         .upload(path, blob, { contentType: 'image/jpeg', upsert: true })
       if (uploadError) throw new Error(uploadError.message)
 
+      const textItems = await pageTextItems(page)
       const { error: pageError } = await supabase.from('source_book_pages').insert({
         book_id: book.id,
         page_number: n,
         storage_path: path,
         width: canvas.width,
         height: canvas.height,
+        // Null rather than an empty array marks a true scan, which is a
+        // different thing from a page that happens to have no words on it.
+        text_items: textItems.length > 0 ? textItems : null,
       })
       if (pageError) throw new Error(pageError.message)
 

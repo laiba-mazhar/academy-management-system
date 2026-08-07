@@ -4,8 +4,8 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { Field, Input, Select } from '@/components/ui/Input'
-import { signPages, uploadBook, type UploadProgress } from '@/lib/sourceBooks'
+import { Field, Input, Select, Textarea } from '@/components/ui/Input'
+import { signPages, textInCrop, uploadBook, type UploadProgress } from '@/lib/sourceBooks'
 import { QUESTION_TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import type { Class, Crop, QuestionType, SourceBook, SourceBookPage, Subject } from '@/types/database'
 
@@ -239,9 +239,20 @@ function BookViewer({
   const [dragFrom, setDragFrom] = useState<{ x: number; y: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ label: '', marks: '2', chapter: '', question_type: 'short' as QuestionType })
+  // The text pulled out of the dragged region. Editable, because a box drawn
+  // across a column can pick up a stray word from the next one.
+  const [snipText, setSnipText] = useState('')
+  const [edited, setEdited] = useState(false)
   const imageRef = useRef<HTMLDivElement>(null)
 
   const page = pages[index]
+  const hasTextLayer = !!page?.text_items?.length
+
+  // Re-read on every drag, unless the teacher has started correcting it.
+  useEffect(() => {
+    if (!page || !crop || edited) return
+    setSnipText(textInCrop(page.text_items, crop))
+  }, [page, crop, edited])
 
   useEffect(() => {
     ;(async () => {
@@ -280,6 +291,7 @@ function BookViewer({
     const p = pointAt(e)
     if (!p) return
     setDragFrom(p)
+    setEdited(false)
     setCrop({ x: p.x, y: p.y, w: 0, h: 0 })
   }
 
@@ -305,27 +317,31 @@ function BookViewer({
       show('Marks must be a positive number.', 'error')
       return
     }
+    // Where the page carries a text layer, the snip becomes an ordinary text
+    // question — searchable, editable, and printable in whatever script it was
+    // written in. Only a true scan falls back to storing the picture.
+    const asText = snipText.trim()
     setSaving(true)
     const { error } = await supabase.from('questions').insert({
       subject_id: book.subject_id,
       class_id: book.class_id,
       chapter: form.chapter.trim() || null,
-      // The picture is the question; this label is what makes it findable in
-      // the bank, since there is no text to search.
-      question_text: form.label.trim() || `${book.title} — page ${page.page_number}`,
+      question_text: asText || form.label.trim() || `${book.title} — page ${page.page_number}`,
       marks,
       question_type: form.question_type,
       source: `${book.title} (p${page.page_number})`,
-      source_page_id: page.id,
-      crop,
+      source_page_id: asText ? null : page.id,
+      crop: asText ? null : crop,
     })
     setSaving(false)
     if (error) {
       show(error.message, 'error')
       return
     }
-    show('Question added to the bank.')
+    show(asText ? 'Question added as text.' : 'Question added as a picture.')
     setCrop(null)
+    setSnipText('')
+    setEdited(false)
     setForm({ ...form, label: '' })
     onQuestionAdded()
   }
@@ -389,13 +405,27 @@ function BookViewer({
             </div>
 
             <div className="min-w-[15rem] flex-1 space-y-3">
-              <Field label="Label (for finding it later)">
-                <Input
-                  value={form.label}
-                  placeholder="Exercise 3.2 Q4"
-                  onChange={(e) => setForm({ ...form, label: e.target.value })}
-                />
-              </Field>
+              {hasTextLayer ? (
+                <Field label="Question text (taken from the page)">
+                  <Textarea
+                    rows={5}
+                    value={snipText}
+                    placeholder="Drag a box on the page to pull its text in."
+                    onChange={(e) => {
+                      setEdited(true)
+                      setSnipText(e.target.value)
+                    }}
+                  />
+                </Field>
+              ) : (
+                <Field label="Label (for finding it later)">
+                  <Input
+                    value={form.label}
+                    placeholder="Exercise 3.2 Q4"
+                    onChange={(e) => setForm({ ...form, label: e.target.value })}
+                  />
+                </Field>
+              )}
               <Field label="Type">
                 <Select
                   value={form.question_type}
@@ -426,8 +456,9 @@ function BookViewer({
                 {saving ? 'Adding…' : 'Add this snip to the bank'}
               </Button>
               <p className="text-xs text-slate-400 dark:text-slate-500">
-                The picture is stored as-is. Whatever language or notation is on the page prints exactly as it
-                appears here.
+                {hasTextLayer
+                  ? 'This book carries its own text, so the words above are the book’s own — Urdu stays Urdu, notation stays notation. Correct anything the box caught by mistake before adding.'
+                  : 'This page is a true scan with no text in it, so the snip is stored as a picture. It prints exactly as it appears here.'}
               </p>
             </div>
           </div>
