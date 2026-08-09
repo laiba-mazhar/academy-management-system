@@ -18,6 +18,7 @@ import {
   TAGLINE_NAVY,
   type QuestionPaper,
 } from '@/lib/examPaper'
+import { cropToDataUrl } from '@/lib/sourceBooks'
 
 const LOGO_WIDTH_MM = 16
 const LOGO_ASPECT = 512 / 461 // width / height of the source logo asset
@@ -211,40 +212,8 @@ type Doc = import('jspdf').jsPDF
 // A snipped question is a region of a scanned page. The page is fetched once,
 // the wanted region drawn onto a canvas, and that canvas placed in the PDF —
 // so an Urdu or hand-drawn question prints exactly as it appears in the book,
-// with no font or text encoding involved at all.
-const snipCache = new Map<string, Promise<HTMLImageElement>>()
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  const cached = snipCache.get(url)
-  if (cached) return cached
-  const p = new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('Could not load a book page for the paper.'))
-    img.src = url
-  })
-  snipCache.set(url, p)
-  return p
-}
-
-async function cropToDataUrl(url: string, crop: { x: number; y: number; w: number; h: number }) {
-  const img = await loadImage(url)
-  const sx = crop.x * img.naturalWidth
-  const sy = crop.y * img.naturalHeight
-  const sw = crop.w * img.naturalWidth
-  const sh = crop.h * img.naturalHeight
-
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(Math.round(sw), 1)
-  canvas.height = Math.max(Math.round(sh), 1)
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('This browser could not prepare the book image.')
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
-  return { dataUrl: canvas.toDataURL('image/jpeg', 0.85), aspect: canvas.height / canvas.width }
-}
+// with no font or text encoding involved at all. cropToDataUrl lives with the
+// rest of the book-page handling, and is shared with the AI reader.
 
 // The paper's body font. jsPDF's built-in faces are WinAnsi-encoded, so a
 // maths symbol came out as mangled punctuation; this is a subsetted DejaVu

@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
+import { edgeFunctionError } from '@/lib/errors'
 import { loadPdf } from '@/lib/pdfText'
-import type { Crop, SourceBookPage } from '@/types/database'
+import type { Crop, PageTextItem, SourceBookPage } from '@/types/database'
 
 export const BOOK_BUCKET = 'book-pages'
 
@@ -8,6 +9,74 @@ export const BOOK_BUCKET = 'book-pages'
 // original size, without making a 200-page book unreasonable to store.
 const PAGE_WIDTH = 1400
 const JPEG_QUALITY = 0.82
+
+// Most books that look scanned are really digital PDFs whose text is right
+// there in the file. Capturing it at upload means snipping a region can hand
+// back the real characters — exact Urdu, exact notation — with no recognition
+// step to corrupt them. Positions are fractions of the page so a crop dragged
+// at any display size can be matched against them.
+async function pageTextItems(page: {
+  getTextContent: () => Promise<{ items: unknown[] }>
+  getViewport: (o: { scale: number }) => { width: number; height: number }
+}): Promise<PageTextItem[]> {
+  const view = page.getViewport({ scale: 1 })
+  const content = await page.getTextContent()
+  const items: PageTextItem[] = []
+
+  for (const raw of content.items) {
+    const item = raw as { str?: string; transform?: number[]; width?: number; height?: number }
+    if (!item.str?.trim() || !item.transform) continue
+    const x = item.transform[4]
+    // PDF y counts up from the bottom; everything else here counts down.
+    const yTop = view.height - item.transform[5] - (item.height ?? 0)
+    items.push({
+      t: item.str,
+      x: x / view.width,
+      y: yTop / view.height,
+      w: (item.width ?? 0) / view.width,
+      h: (item.height ?? 0) / view.height,
+    })
+  }
+  return items
+}
+
+// Lines are rebuilt by vertical position, and read right-to-left when the line
+// is Arabic script — joining those left-to-right would reverse the words.
+const LINE_TOLERANCE = 0.006
+const ARABIC = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/
+
+export function textInCrop(items: PageTextItem[] | null, crop: Crop): string {
+  if (!items || items.length === 0) return ''
+
+  // An item counts as inside when its middle is, so a box drawn slightly tight
+  // around a line still catches it.
+  const inside = items.filter((it) => {
+    const cx = it.x + it.w / 2
+    const cy = it.y + it.h / 2
+    return cx >= crop.x && cx <= crop.x + crop.w && cy >= crop.y && cy <= crop.y + crop.h
+  })
+  if (inside.length === 0) return ''
+
+  const lines: PageTextItem[][] = []
+  for (const item of [...inside].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const line = lines[lines.length - 1]
+    if (line && Math.abs(line[0].y - item.y) <= LINE_TOLERANCE) line.push(item)
+    else lines.push([item])
+  }
+
+  return lines
+    .map((line) => {
+      const rtl = line.some((it) => ARABIC.test(it.t))
+      const ordered = [...line].sort((a, b) => (rtl ? b.x - a.x : a.x - b.x))
+      return ordered
+        .map((it) => it.t)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    })
+    .filter(Boolean)
+    .join('\n')
+}
 
 export interface UploadProgress {
   page: number
@@ -61,12 +130,16 @@ export async function uploadBook(
         .upload(path, blob, { contentType: 'image/jpeg', upsert: true })
       if (uploadError) throw new Error(uploadError.message)
 
+      const textItems = await pageTextItems(page)
       const { error: pageError } = await supabase.from('source_book_pages').insert({
         book_id: book.id,
         page_number: n,
         storage_path: path,
         width: canvas.width,
         height: canvas.height,
+        // Null rather than an empty array marks a true scan, which is a
+        // different thing from a page that happens to have no words on it.
+        text_items: textItems.length > 0 ? textItems : null,
       })
       if (pageError) throw new Error(pageError.message)
 
@@ -101,6 +174,71 @@ export async function signPages(pages: SourceBookPage[], seconds = 3600): Promis
     if (entry.signedUrl) urls.set(pages[i].id, entry.signedUrl)
   })
   return urls
+}
+
+// Page pictures are fetched once and reused: a paper can take several snips
+// off the same page, and a teacher reading two regions in a row should not wait
+// for the same download twice.
+const pageImageCache = new Map<string, Promise<HTMLImageElement>>()
+
+function loadPageImage(url: string): Promise<HTMLImageElement> {
+  const cached = pageImageCache.get(url)
+  if (cached) return cached
+  const p = new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    // Storage answers with permissive CORS headers, and without this the canvas
+    // would be tainted — no data URL out of it, so no snip and no AI read.
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Could not load that book page.'))
+    img.src = url
+  })
+  pageImageCache.set(url, p)
+  return p
+}
+
+// Cuts a fractional crop out of a page picture. Shared by the paper builder,
+// which embeds the result, and by the AI reader, which sends it off to be read.
+export async function cropToDataUrl(
+  url: string,
+  crop: Crop,
+  quality = 0.85
+): Promise<{ dataUrl: string; aspect: number }> {
+  const img = await loadPageImage(url)
+  const sx = crop.x * img.naturalWidth
+  const sy = crop.y * img.naturalHeight
+  const sw = crop.w * img.naturalWidth
+  const sh = crop.h * img.naturalHeight
+
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(Math.round(sw), 1)
+  canvas.height = Math.max(Math.round(sh), 1)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('This browser could not prepare the book image.')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+  return { dataUrl: canvas.toDataURL('image/jpeg', quality), aspect: canvas.height / canvas.width }
+}
+
+// A true scan has no text layer to take characters from, so the only way to get
+// real Urdu, real notation, real anything out of it is to have something read
+// the picture. That happens server-side, in the read-snip edge function,
+// because it needs an API key that must never reach the browser.
+//
+// Returns '' when the model found nothing legible in the region.
+export async function readCropWithAi(imageUrl: string, crop: Crop): Promise<string> {
+  // Slightly gentler compression than the printing path: JPEG artefacts around
+  // Urdu diacritics cost accuracy, and this image is read, not printed.
+  const { dataUrl } = await cropToDataUrl(imageUrl, crop, 0.92)
+  const imageBase64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+
+  const { data, error } = await supabase.functions.invoke('read-snip', { body: { imageBase64 } })
+  if (error) throw new Error(await edgeFunctionError(error, 'Could not read that region.'))
+
+  const result = data as { text?: string; empty?: boolean; error?: string } | null
+  if (result?.error) throw new Error(result.error)
+  return result?.text ?? ''
 }
 
 // Crops are stored as fractions of the page, so they stay correct whatever

@@ -4,8 +4,8 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { Field, Input, Select } from '@/components/ui/Input'
-import { signPages, uploadBook, type UploadProgress } from '@/lib/sourceBooks'
+import { Field, Input, Select, Textarea } from '@/components/ui/Input'
+import { readCropWithAi, signPages, textInCrop, uploadBook, type UploadProgress } from '@/lib/sourceBooks'
 import { QUESTION_TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import type { Class, Crop, QuestionType, SourceBook, SourceBookPage, Subject } from '@/types/database'
 
@@ -239,9 +239,21 @@ function BookViewer({
   const [dragFrom, setDragFrom] = useState<{ x: number; y: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ label: '', marks: '2', chapter: '', question_type: 'short' as QuestionType })
+  // The text pulled out of the dragged region. Editable, because a box drawn
+  // across a column can pick up a stray word from the next one.
+  const [snipText, setSnipText] = useState('')
+  const [edited, setEdited] = useState(false)
+  const [reading, setReading] = useState(false)
   const imageRef = useRef<HTMLDivElement>(null)
 
   const page = pages[index]
+  const hasTextLayer = !!page?.text_items?.length
+
+  // Re-read on every drag, unless the teacher has started correcting it.
+  useEffect(() => {
+    if (!page || !crop || edited) return
+    setSnipText(textInCrop(page.text_items, crop))
+  }, [page, crop, edited])
 
   useEffect(() => {
     ;(async () => {
@@ -280,6 +292,7 @@ function BookViewer({
     const p = pointAt(e)
     if (!p) return
     setDragFrom(p)
+    setEdited(false)
     setCrop({ x: p.x, y: p.y, w: 0, h: 0 })
   }
 
@@ -295,6 +308,34 @@ function BookViewer({
     })
   }
 
+  // Only offered on a true scan: where the page has its own text layer the
+  // characters are already exact, and asking a model to re-read them could only
+  // make them worse.
+  async function readWithAi() {
+    const url = page ? urls.get(page.id) : undefined
+    if (!page || !url || !crop || crop.w < 0.02 || crop.h < 0.01) {
+      show('Drag a box around the question first.', 'error')
+      return
+    }
+    setReading(true)
+    try {
+      const text = await readCropWithAi(url, crop)
+      if (!text) {
+        show('Nothing legible was found in that box. Try drawing it a little wider.', 'error')
+        return
+      }
+      // Marking it edited stops the text-layer effect from clearing what the
+      // model just read back.
+      setEdited(true)
+      setSnipText(text)
+      show('Read. Check it against the page before adding.')
+    } catch (err) {
+      show(err instanceof Error ? err.message : 'Could not read that region.', 'error')
+    } finally {
+      setReading(false)
+    }
+  }
+
   async function saveSnip() {
     if (!page || !crop || crop.w < 0.02 || crop.h < 0.01) {
       show('Drag a box around the question first.', 'error')
@@ -305,27 +346,31 @@ function BookViewer({
       show('Marks must be a positive number.', 'error')
       return
     }
+    // Where the page carries a text layer, the snip becomes an ordinary text
+    // question — searchable, editable, and printable in whatever script it was
+    // written in. Only a true scan falls back to storing the picture.
+    const asText = snipText.trim()
     setSaving(true)
     const { error } = await supabase.from('questions').insert({
       subject_id: book.subject_id,
       class_id: book.class_id,
       chapter: form.chapter.trim() || null,
-      // The picture is the question; this label is what makes it findable in
-      // the bank, since there is no text to search.
-      question_text: form.label.trim() || `${book.title} — page ${page.page_number}`,
+      question_text: asText || form.label.trim() || `${book.title} — page ${page.page_number}`,
       marks,
       question_type: form.question_type,
       source: `${book.title} (p${page.page_number})`,
-      source_page_id: page.id,
-      crop,
+      source_page_id: asText ? null : page.id,
+      crop: asText ? null : crop,
     })
     setSaving(false)
     if (error) {
       show(error.message, 'error')
       return
     }
-    show('Question added to the bank.')
+    show(asText ? 'Question added as text.' : 'Question added as a picture.')
     setCrop(null)
+    setSnipText('')
+    setEdited(false)
     setForm({ ...form, label: '' })
     onQuestionAdded()
   }
@@ -389,13 +434,39 @@ function BookViewer({
             </div>
 
             <div className="min-w-[15rem] flex-1 space-y-3">
-              <Field label="Label (for finding it later)">
-                <Input
-                  value={form.label}
-                  placeholder="Exercise 3.2 Q4"
-                  onChange={(e) => setForm({ ...form, label: e.target.value })}
+              <Field label={hasTextLayer ? 'Question text (taken from the page)' : 'Question text'}>
+                <Textarea
+                  rows={5}
+                  value={snipText}
+                  placeholder={
+                    hasTextLayer
+                      ? 'Drag a box on the page to pull its text in.'
+                      : 'Drag a box, then press “Read with AI” — or leave this blank to keep the snip as a picture.'
+                  }
+                  onChange={(e) => {
+                    setEdited(true)
+                    setSnipText(e.target.value)
+                  }}
                 />
               </Field>
+              {!hasTextLayer && (
+                <>
+                  <Button
+                    variant="secondary"
+                    onClick={readWithAi}
+                    disabled={reading || !crop || crop.w < 0.02}
+                  >
+                    {reading ? 'Reading…' : 'Read with AI'}
+                  </Button>
+                  <Field label="Label (used if it stays a picture)">
+                    <Input
+                      value={form.label}
+                      placeholder="Exercise 3.2 Q4"
+                      onChange={(e) => setForm({ ...form, label: e.target.value })}
+                    />
+                  </Field>
+                </>
+              )}
               <Field label="Type">
                 <Select
                   value={form.question_type}
@@ -426,8 +497,9 @@ function BookViewer({
                 {saving ? 'Adding…' : 'Add this snip to the bank'}
               </Button>
               <p className="text-xs text-slate-400 dark:text-slate-500">
-                The picture is stored as-is. Whatever language or notation is on the page prints exactly as it
-                appears here.
+                {hasTextLayer
+                  ? 'This book carries its own text, so the words above are the book’s own — Urdu stays Urdu, notation stays notation. Correct anything the box caught by mistake before adding.'
+                  : 'This page is a true scan with no text in it. “Read with AI” transcribes the box in its own script — Urdu as Urdu, notation as notation — for you to check and correct. Leave the text empty and the snip is stored as a picture instead, printing exactly as it appears here.'}
               </p>
             </div>
           </div>

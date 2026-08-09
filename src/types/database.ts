@@ -117,6 +117,15 @@ export interface SourceBook {
   created_at: string
 }
 
+/** One run of text on a page, positioned as fractions of the page. */
+export interface PageTextItem {
+  t: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 export interface SourceBookPage {
   id: string
   book_id: string
@@ -125,6 +134,8 @@ export interface SourceBookPage {
   storage_path: string
   width: number
   height: number
+  /** Null when the page is a true scan with no text layer. */
+  text_items: PageTextItem[] | null
 }
 
 /** A region of a page, as fractions of its width and height. */
@@ -370,7 +381,7 @@ export interface Database {
       }
       source_book_pages: {
         Row: SourceBookPage
-        Insert: InsertOf<SourceBookPage, 'id'>
+        Insert: InsertOf<SourceBookPage, 'id' | 'text_items'>
         Update: Partial<SourceBookPage>
         Relationships: []
       }
