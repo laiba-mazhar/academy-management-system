@@ -393,7 +393,7 @@ function typeForMarks(marks: number, fallback: QuestionType): QuestionType {
   return 'short'
 }
 
-function defaultMarks(type: QuestionType): string {
+export function defaultMarks(type: QuestionType): string {
   if (type === 'mcq' || type === 'true_false' || type === 'fill_blank') return '1'
   if (type === 'long') return '5'
   return '2'

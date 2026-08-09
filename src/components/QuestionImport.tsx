@@ -7,6 +7,12 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { extractPdfText, ScannedPdfError } from '@/lib/pdfText'
 import { ocrPdf, OcrGibberishError, OCR_LANGUAGES, type OcrLanguage, type OcrProgress } from '@/lib/pdfOcr'
 import { dedupeKey, looksLikeGibberish, parseQuestions, type DraftQuestion } from '@/lib/questionParser'
+import {
+  countPdfPages,
+  parsePageRange,
+  readQuestionsWithAi,
+  type AiReadProgress,
+} from '@/lib/aiQuestions'
 import { QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
 import { SymbolPad } from '@/components/SymbolPad'
@@ -57,6 +63,15 @@ export function QuestionImport({
   const [ocr, setOcr] = useState<OcrProgress | null>(null)
   const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>('eng')
   const [recognised, setRecognised] = useState('')
+  // Any chosen PDF is kept, whether or not the parser managed to read it, so
+  // the AI reader can be pointed at the same file without picking it again.
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [pageCount, setPageCount] = useState(0)
+  const [pageRange, setPageRange] = useState('')
+  const [aiExercisesOnly, setAiExercisesOnly] = useState(false)
+  const [aiProgress, setAiProgress] = useState<AiReadProgress | null>(null)
+  const [readByAi, setReadByAi] = useState(false)
+  const [aiNote, setAiNote] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
@@ -96,6 +111,8 @@ export function QuestionImport({
     setSectionsFound(result.sectionsFound)
     setExercisesOnly(result.exercisesOnly)
     setFileName(source)
+    setReadByAi(false)
+    setAiNote(null)
     setError(null)
     setStep('review')
   }
@@ -104,18 +121,75 @@ export function QuestionImport({
     setBusy(true)
     setError(null)
     setScannedFile(null)
+    setPdfFile(file)
+    setPageRange('')
+    try {
+      setPageCount(await countPdfPages(file))
+    } catch {
+      // Not fatal — only the page-range hint needs it.
+      setPageCount(0)
+    }
     try {
       const text = await extractPdfText(file)
       runParse(text, file.name)
     } catch (err) {
       if (err instanceof ScannedPdfError) {
-        // Not a dead end any more — offer to recognise it instead.
+        // Not a dead end any more — offer to read it instead.
         setScannedFile(file)
         setError(null)
       } else {
         setError(`Could not read that PDF. ${err instanceof Error ? err.message : ''}`.trim())
       }
     } finally {
+      setBusy(false)
+    }
+  }
+
+  // The reader that does not care what language the paper is in. It looks at
+  // pictures of the pages, so a scan and an Urdu paper are no harder than an
+  // English one — but it costs a call per couple of pages, which is why the
+  // parser stays the default for a paper it can already read.
+  async function handleAiRead() {
+    if (!pdfFile) return
+    const range = parsePageRange(pageRange, pageCount || 9999)
+    if (!range) {
+      setError(
+        pageCount > 0
+          ? `Enter a page or a range within 1–${pageCount}, like “1-8”.`
+          : 'Enter a page or a range, like “1-8”.'
+      )
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await readQuestionsWithAi(
+        pdfFile,
+        range,
+        { exercisesOnly: aiExercisesOnly },
+        setAiProgress
+      )
+      if (result.drafts.length === 0) {
+        setError(
+          aiExercisesOnly
+            ? 'No exercise questions were found on those pages. Try a different page range, or untick “exercises only”.'
+            : 'No questions were found on those pages. Check the page range covers the questions.'
+        )
+        return
+      }
+      setDrafts(result.drafts)
+      setSelected(new Set())
+      setSectionsFound(false)
+      setExercisesOnly(aiExercisesOnly)
+      setFileName(pdfFile.name)
+      setReadByAi(true)
+      setAiNote(result.stoppedEarly)
+      setScannedFile(null)
+      setStep('review')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read that file with AI.')
+    } finally {
+      setAiProgress(null)
       setBusy(false)
     }
   }
@@ -286,16 +360,73 @@ export function QuestionImport({
             </Field>
           )}
 
+          {pdfFile && (
+            <div className="rounded-lg border border-brand-200 bg-brand-50/60 px-3 py-3 dark:border-brand-900/60 dark:bg-brand-950/30">
+              <p className="text-sm font-semibold text-brand-800 dark:text-cream-100">
+                Read “{pdfFile.name}” with AI
+              </p>
+              <p className="mt-1 text-xs text-brand-900/80 dark:text-cream-200/80">
+                Reads the pages as pictures, so a scan is no harder than a typed paper and the language does not
+                matter — Urdu stays Urdu, Arabic stays Arabic, maths keeps its notation. Nothing is translated, and
+                every question still comes to the review screen before it reaches the bank.
+              </p>
+
+              {aiProgress ? (
+                <div className="mt-2">
+                  <p className="text-xs text-brand-900 dark:text-cream-200">{aiProgress.note}</p>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-brand-200 dark:bg-brand-900/60">
+                    <div
+                      className="h-full rounded-full bg-brand-600 transition-all duration-200 dark:bg-gold-400"
+                      style={{
+                        width: `${Math.round(
+                          (aiProgress.page / Math.max(aiProgress.totalPages, 1)) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {/* A whole textbook would be hundreds of calls, so the range
+                      is asked for rather than assumed. */}
+                  <div className="w-28">
+                    <Input
+                      value={pageRange}
+                      onChange={(e) => setPageRange(e.target.value)}
+                      placeholder={pageCount > 0 ? `1-${pageCount}` : 'Pages'}
+                      aria-label="Pages to read"
+                    />
+                  </div>
+                  <span className="text-xs text-brand-900/70 dark:text-cream-200/70">
+                    {pageCount > 0 ? `of ${pageCount} pages` : 'pages'}
+                  </span>
+                  <label className="flex items-center gap-1.5 text-xs text-brand-900/80 dark:text-cream-200/80">
+                    <input
+                      type="checkbox"
+                      checked={aiExercisesOnly}
+                      onChange={(e) => setAiExercisesOnly(e.target.checked)}
+                      className="h-3.5 w-3.5"
+                    />
+                    Textbook — exercises only
+                  </label>
+                  <Button onClick={handleAiRead} disabled={busy}>
+                    Read with AI
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           {scannedFile && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 dark:border-amber-800/60 dark:bg-amber-950/30">
               <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
                 “{scannedFile.name}” is a scan
               </p>
               <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90">
-                There is no text in this PDF — it is a picture of a paper. Text recognition can read it, but it takes
-                a few seconds a page and is less accurate than a Word-exported PDF, so check the questions carefully
-                afterwards. Pick the language the paper is written in — Urdu and Arabic results are rough, and a
-                handwritten page will not read at all.
+                There is no text in this PDF — it is a picture of a paper, so the questions have to be read off the
+                page. Reading it with AI above handles any language. Offline recognition can try instead if you would
+                rather not use AI: it runs entirely in this browser, but it is rough on Urdu and Arabic and will not
+                read handwriting at all. Pick the language the paper is written in.
               </p>
               {ocr ? (
                 <div className="mt-2">
@@ -329,8 +460,8 @@ export function QuestionImport({
                       ))}
                     </Select>
                   </div>
-                  <Button onClick={handleOcr} disabled={busy}>
-                    Read it with text recognition
+                  <Button variant="secondary" onClick={handleOcr} disabled={busy}>
+                    Read it with offline recognition
                   </Button>
                   <Button variant="secondary" onClick={() => { setScannedFile(null); setTab('paste') }}>
                     Paste the text instead
@@ -422,14 +553,32 @@ export function QuestionImport({
               <span className="text-red-700 dark:text-red-400">{duplicateKeys.size} look like duplicates</span>
             )}
             <span className="text-slate-400 dark:text-slate-500">
-              {sectionsFound ? 'Types read from the paper’s own sections' : 'No sections found — types were guessed'}
+              {readByAi
+                ? 'Read by AI — check the wording against the page'
+                : sectionsFound
+                  ? 'Types read from the paper’s own sections'
+                  : 'No sections found — types were guessed'}
             </span>
             {exercisesOnly && (
               <span className="text-slate-500 dark:text-slate-400">
                 Textbook — only the exercises were read, not the lesson text
               </span>
             )}
+            {!readByAi && pdfFile && (
+              <button
+                onClick={() => setStep('source')}
+                className="text-brand-600 hover:underline dark:text-gold-400"
+              >
+                Not right? Read it with AI instead
+              </button>
+            )}
           </div>
+
+          {aiNote && (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200">
+              Reading stopped before the last page, so these are the questions from the pages that were read. {aiNote}
+            </p>
+          )}
 
           {/* Past papers carry no chapter and no difficulty, so tagging is the
               real work here. Doing it per row for forty questions is what makes
@@ -635,8 +784,12 @@ function DraftRow({
             )}
           </div>
 
+          {/* dir="auto" lets the browser pick the direction from the text
+              itself, so an Urdu question reads right-to-left in the box it is
+              corrected in and an English one is unaffected. */}
           <Textarea
             ref={textRef}
+            dir="auto"
             rows={draft.text.includes('\n') ? 3 : 2}
             value={draft.text}
             onChange={(e) => onChange({ text: e.target.value })}
