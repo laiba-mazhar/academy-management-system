@@ -436,6 +436,7 @@ function BookViewer({
             <div className="min-w-[15rem] flex-1 space-y-3">
               <Field label={hasTextLayer ? 'Question text (taken from the page)' : 'Question text'}>
                 <Textarea
+                  dir="auto"
                   rows={5}
                   value={snipText}
                   placeholder={

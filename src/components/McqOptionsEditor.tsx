@@ -26,6 +26,7 @@ export function McqOptionsEditor({
           </span>
           <div className="flex-1">
             <Input
+              dir="auto"
               value={option.text}
               placeholder={`Option ${option.key}`}
               onChange={(e) => onChange(options.map((o, j) => (j === i ? { ...o, text: e.target.value } : o)))}

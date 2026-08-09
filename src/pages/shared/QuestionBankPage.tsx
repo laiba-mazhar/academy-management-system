@@ -279,14 +279,14 @@ export function QuestionBankPage() {
                     />
                   </div>
                 ) : (
-                  <p className="mt-1 whitespace-pre-line text-sm text-slate-800 dark:text-slate-100">
+                  <p dir="auto" className="mt-1 whitespace-pre-line text-sm text-slate-800 dark:text-slate-100">
                     {q.question_text}
                   </p>
                 )}
                 {q.question_type === 'mcq' && q.options && q.options.length > 0 && (
                   <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
                     {q.options.map((o) => (
-                      <li key={o.key}>
+                      <li key={o.key} dir="auto">
                         <span className="font-semibold">{o.key})</span> {o.text}
                       </li>
                     ))}
