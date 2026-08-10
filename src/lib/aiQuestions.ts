@@ -25,6 +25,12 @@ const PAGES_PER_CALL = 2
 // for the window to roll over, turns a burst limit into a pause rather than a
 // failed import.
 const RATE_LIMIT_WAIT_MS = 25_000
+// Free-tier allowances are measured in single-digit requests per minute — the
+// project this was built for has five. Reading a page usually takes longer than
+// this on its own, so the floor costs nothing in the normal case and only bites
+// when several answers come back quickly in a row, which is precisely when the
+// limit would otherwise be tripped.
+const MIN_GAP_BETWEEN_CALLS_MS = 13_000
 
 export interface AiReadProgress {
   page: number
@@ -93,10 +99,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// When the last call went out, so the next one can be held back if it would
+// land inside the free tier's per-minute window.
+let lastCallAt = 0
+
 async function callReadQuestions(
   pages: { imageBase64: string }[],
   options: AiReadOptions
 ): Promise<ExtractedQuestion[]> {
+  const since = Date.now() - lastCallAt
+  if (lastCallAt > 0 && since < MIN_GAP_BETWEEN_CALLS_MS) {
+    await sleep(MIN_GAP_BETWEEN_CALLS_MS - since)
+  }
+  lastCallAt = Date.now()
+
   const { data, error } = await supabase.functions.invoke('read-questions', {
     body: { pages, exercisesOnly: options.exercisesOnly, translate: options.translate },
   })
