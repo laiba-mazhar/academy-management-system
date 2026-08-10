@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select } from '@/components/ui/Input'
 import { parseQuestionText, sectionMarks, type PaperSection } from '@/lib/examPaper'
-import { QUESTION_TYPE_LABELS } from '@/lib/questionTypes'
+import { QUESTION_TYPE_LABELS, QUESTION_TYPES, typesForPart } from '@/lib/questionTypes'
 import type { ExamPart, ExamQuestion, ExamSection, Question } from '@/types/database'
 
 interface SectionForm {
@@ -363,6 +363,7 @@ export function PaperBuilder({
       {pickerSection && (
         <QuestionPicker
           bank={bank.filter((q) => !onPaper.has(q.id))}
+          part={pickerSection === 'unassigned' ? undefined : pickerSection.part}
           onClose={() => setPickerSection(null)}
           onAdd={async (ids) => {
             await addToSection(pickerSection === 'unassigned' ? null : pickerSection.id, ids)
@@ -495,10 +496,13 @@ function PaperQuestionRow({
 
 function QuestionPicker({
   bank,
+  part,
   onClose,
   onAdd,
 }: {
   bank: Question[]
+  /** Which half of the paper this section sits in. Undefined for Unassigned. */
+  part?: ExamPart
   onClose: () => void
   onAdd: (ids: string[]) => void
 }) {
@@ -506,7 +510,14 @@ function QuestionPicker({
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
 
-  const filtered = bank.filter(
+  // A section knows which half of the paper it is in, so the bank is narrowed
+  // to the types that belong there rather than leaving a teacher to notice
+  // that the short question they just ticked has landed among the MCQs.
+  const allowedTypes = part ? typesForPart(part) : QUESTION_TYPES
+  const inPart = bank.filter((q) => allowedTypes.includes(q.question_type))
+  const hiddenByPart = bank.length - inPart.length
+
+  const filtered = inPart.filter(
     (q) =>
       (typeFilter === 'all' || q.question_type === typeFilter) &&
       (search.trim() === '' ||
@@ -521,8 +532,8 @@ function QuestionPicker({
           <Input value={search} placeholder="Search question or chapter" onChange={(e) => setSearch(e.target.value)} />
           <div className="w-40 shrink-0">
             <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-              <option value="all">All types</option>
-              {(Object.keys(QUESTION_TYPE_LABELS) as (keyof typeof QUESTION_TYPE_LABELS)[]).map((t) => (
+              <option value="all">{part === 'objective' ? 'All objective' : part ? 'All written' : 'All types'}</option>
+              {allowedTypes.map((t) => (
                 <option key={t} value={t}>
                   {QUESTION_TYPE_LABELS[t]}
                 </option>
@@ -531,9 +542,19 @@ function QuestionPicker({
           </div>
         </div>
 
+        {part && hiddenByPart > 0 && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {part === 'objective'
+              ? `Showing MCQs, true/false and fill-in-the-blanks only — ${hiddenByPart} written question${hiddenByPart === 1 ? '' : 's'} hidden, because this section is in the objective part.`
+              : `Showing written questions only — ${hiddenByPart} objective question${hiddenByPart === 1 ? '' : 's'} hidden, because this section is in the subjective part.`}
+          </p>
+        )}
+
         {filtered.length === 0 ? (
           <p className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-400 dark:border-slate-600 dark:text-slate-500">
-            Nothing left in the bank matches. Every matching question may already be on the paper.
+            {part === 'objective' && hiddenByPart > 0 && inPart.length === 0
+              ? 'No MCQs in the bank for this subject yet. Import or add some, then come back.'
+              : 'Nothing left in the bank matches. Every matching question may already be on the paper.'}
           </p>
         ) : (
           <ul className="max-h-[50vh] space-y-1 overflow-y-auto">
