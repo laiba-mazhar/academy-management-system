@@ -81,6 +81,9 @@ export function QuestionImport({
   // Set when the PDF has a text layer that cannot be displayed — a legacy
   // Urdu font, typically. Parsing it would produce a screen of boxes.
   const [textUnreadable, setTextUnreadable] = useState(false)
+  // How many questions reading the PDF's own text found, once a file is
+  // chosen. Offered as a choice rather than taken automatically.
+  const [parsedCount, setParsedCount] = useState<number | null>(null)
   const [aiNote, setAiNote] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -108,7 +111,7 @@ export function QuestionImport({
 
   const uncertainCount = drafts.filter((d) => d.uncertain).length
 
-  function runParse(text: string, source: string) {
+  function runParse(text: string, source: string, advance = true) {
     const result = parseQuestions(text)
     if (result.drafts.length === 0) {
       setError(
@@ -129,7 +132,12 @@ export function QuestionImport({
     setReadByAi(false)
     setAiNote(null)
     setError(null)
-    setStep('review')
+    // Choosing a file must not decide for the teacher. Parsing the text is the
+    // right default for a paper exported from Word, but it is the wrong answer
+    // for a scan or an Urdu paper — and jumping straight to the review screen
+    // hid the AI reader behind a step nobody could see.
+    if (advance) setStep('review')
+    else setParsedCount(ordered.length)
   }
 
   async function handleFile(file: File) {
@@ -139,6 +147,7 @@ export function QuestionImport({
     setPdfFile(file)
     setPageRange('')
     setTextUnreadable(false)
+    setParsedCount(null)
     try {
       setPageCount(await countPdfPages(file))
     } catch {
@@ -155,7 +164,7 @@ export function QuestionImport({
         setTextUnreadable(true)
         return
       }
-      runParse(text, file.name)
+      runParse(text, file.name, false)
     } catch (err) {
       if (err instanceof ScannedPdfError) {
         // Not a dead end any more — offer to read it instead.
@@ -375,7 +384,11 @@ export function QuestionImport({
                 className="w-full rounded-xl border-2 border-dashed border-slate-300 px-6 py-10 text-center transition-colors hover:border-brand-400 hover:bg-brand-50/40 disabled:opacity-60 dark:border-slate-600 dark:hover:border-brand-500 dark:hover:bg-slate-700/40"
               >
                 <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                  {busy ? 'Reading the PDF...' : 'Choose a past paper PDF'}
+                  {busy
+                    ? 'Reading the PDF...'
+                    : pdfFile
+                      ? `${pdfFile.name} — choose a different PDF`
+                      : 'Choose a past paper PDF'}
                 </p>
                 <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                   The file is read in your browser and never uploaded.
@@ -465,6 +478,21 @@ export function QuestionImport({
                   replace the very thing it tests — change that on the subject if it is wrong.
                 </p>
               )}
+            </div>
+          )}
+
+          {parsedCount !== null && (
+            <div className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-3 dark:border-slate-600 dark:bg-slate-900/50">
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                Found {parsedCount} question{parsedCount === 1 ? '' : 's'} by reading the text in this PDF
+              </p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Free and exact when the paper was made in Word. If the questions come out wrong — split oddly, or in
+                the wrong language — use the AI reader below instead.
+              </p>
+              <div className="mt-2">
+                <Button onClick={() => setStep('review')}>Review these {parsedCount}</Button>
+              </div>
             </div>
           )}
 
