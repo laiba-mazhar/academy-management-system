@@ -24,8 +24,21 @@ export function Sidebar({
       {isOpen && (
         <div className="fixed inset-0 z-40 bg-slate-900/50 lg:hidden" onClick={onClose} aria-hidden="true" />
       )}
+      {/* On desktop this is sticky rather than static, so the navigation stays
+          put while a long page scrolls behind it.
+
+          `sticky` alone does nothing here. As a flex child the aside stretches
+          to the row's full height — the height of the whole page — so it has
+          no room to move within and scrolls away exactly as before. Measured
+          at 5784px against an 800px viewport. Giving it `h-dvh` both stops
+          that stretch and holds it to one screen; `self-start` says the same
+          thing explicitly, so a later change to the height cannot quietly
+          bring the stretch back. The nav inside already scrolls on its own
+          when the list is taller than the screen.
+
+          Below `lg` it stays a fixed overlay drawer, unchanged. */}
       <aside
-        className={`no-print fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] shrink-0 flex-col bg-gradient-to-b from-brand-800 to-brand-900 shadow-lg transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:w-60 lg:max-w-none lg:translate-x-0 lg:shadow-none ${
+        className={`no-print fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] shrink-0 flex-col bg-gradient-to-b from-brand-800 to-brand-900 shadow-lg transition-transform duration-200 ease-in-out lg:sticky lg:bottom-auto lg:top-0 lg:z-auto lg:h-dvh lg:w-60 lg:max-w-none lg:translate-x-0 lg:self-start lg:shadow-none ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
