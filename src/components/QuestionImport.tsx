@@ -69,12 +69,18 @@ export function QuestionImport({
   const [pageCount, setPageCount] = useState(0)
   const [pageRange, setPageRange] = useState('')
   const [aiExercisesOnly, setAiExercisesOnly] = useState(false)
+  const [wantTranslation, setWantTranslation] = useState(true)
   const [aiProgress, setAiProgress] = useState<AiReadProgress | null>(null)
   const [readByAi, setReadByAi] = useState(false)
   const [aiNote, setAiNote] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes])
+  // Language subjects opt out: translating "underline the correct spelling" or
+  // a Tarjama tul Quran passage removes the thing the question tests.
+  const subject = useMemo(() => subjects.find((s) => s.id === subjectId), [subjects, subjectId])
+  const subjectTranslates = subject?.translate_questions ?? true
+  const translate = subjectTranslates && wantTranslation
   const existingKeys = useMemo(() => new Set(existing.map((q) => dedupeKey(q.question_text))), [existing])
 
   // Flagged rather than blocked: a teacher may genuinely want the same
@@ -166,7 +172,7 @@ export function QuestionImport({
       const result = await readQuestionsWithAi(
         pdfFile,
         range,
-        { exercisesOnly: aiExercisesOnly },
+        { exercisesOnly: aiExercisesOnly, translate },
         setAiProgress
       )
       if (result.drafts.length === 0) {
@@ -269,6 +275,14 @@ export function QuestionImport({
         question_type: d.questionType,
         options: d.questionType === 'mcq' && d.options.length > 0 ? d.options : null,
         difficulty: d.difficulty || null,
+        language: d.language,
+        translation: d.translation.trim() || null,
+        // Translated choices without a translated stem would print half in
+        // each language, so the pair is written together or not at all.
+        options_translated:
+          d.translation.trim() && d.questionType === 'mcq' && d.optionsTranslated.length > 0
+            ? d.optionsTranslated
+            : null,
         source: fileName || null,
       }))
     )
@@ -409,10 +423,28 @@ export function QuestionImport({
                     />
                     Textbook — exercises only
                   </label>
+                  {subjectTranslates && (
+                    <label className="flex items-center gap-1.5 text-xs text-brand-900/80 dark:text-cream-200/80">
+                      <input
+                        type="checkbox"
+                        checked={wantTranslation}
+                        onChange={(e) => setWantTranslation(e.target.checked)}
+                        className="h-3.5 w-3.5"
+                      />
+                      Also store the other language
+                    </label>
+                  )}
                   <Button onClick={handleAiRead} disabled={busy}>
                     Read with AI
                   </Button>
                 </div>
+              )}
+
+              {!subjectTranslates && !aiProgress && (
+                <p className="mt-2 text-xs text-brand-900/70 dark:text-cream-200/70">
+                  {subject?.name ?? 'This subject'} keeps only the printed text. Translating a language paper would
+                  replace the very thing it tests — change that on the subject if it is wrong.
+                </p>
               )}
             </div>
           )}
@@ -800,6 +832,31 @@ function DraftRow({
 
           {draft.questionType === 'mcq' && (
             <McqOptionsEditor options={draft.options} onChange={(options) => onChange({ options })} />
+          )}
+
+          {/* The other language, shown only where one was made. Editable, and
+              emptying it drops the translation rather than saving a bad one —
+              a machine translation of a question is a draft, not an authority. */}
+          {draft.translation && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-2 dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                {draft.language === 'ur' ? 'English version' : 'Urdu version'} — check before adding
+              </p>
+              <Textarea
+                dir="auto"
+                rows={2}
+                value={draft.translation}
+                onChange={(e) => onChange({ translation: e.target.value })}
+              />
+              {draft.questionType === 'mcq' && draft.optionsTranslated.length > 0 && (
+                <div className="mt-1">
+                  <McqOptionsEditor
+                    options={draft.optionsTranslated}
+                    onChange={(optionsTranslated) => onChange({ optionsTranslated })}
+                  />
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

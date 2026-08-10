@@ -38,6 +38,8 @@ export function QuestionBankPage() {
     marks: string
     question_type: QuestionType
     options: { key: string; text: string }[]
+    translation: string
+    options_translated: { key: string; text: string }[]
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Question | null>(null)
@@ -112,6 +114,8 @@ export function QuestionBankPage() {
       marks: '5',
       question_type: 'short',
       options: [],
+      translation: '',
+      options_translated: [],
     })
     setError(null)
   }
@@ -125,6 +129,8 @@ export function QuestionBankPage() {
       marks: String(q.marks),
       question_type: q.question_type,
       options: q.options ?? [],
+      translation: q.translation ?? '',
+      options_translated: q.options_translated ?? [],
     })
     setError(null)
   }
@@ -153,6 +159,13 @@ export function QuestionBankPage() {
       marks,
       question_type: form.question_type,
       options: form.question_type === 'mcq' && form.options.length > 0 ? form.options : null,
+      translation: form.translation.trim() || null,
+      // Written as a pair: translated choices with an untranslated stem would
+      // print half the question in each language.
+      options_translated:
+        form.translation.trim() && form.question_type === 'mcq' && form.options_translated.length > 0
+          ? form.options_translated
+          : null,
     }
     const result = form.id
       ? await supabase.from('questions').update(payload).eq('id', form.id)
@@ -292,6 +305,24 @@ export function QuestionBankPage() {
                     ))}
                   </ul>
                 )}
+                {/* The other language sits under the original, never in place
+                    of it — the printed wording stays the reference. */}
+                {q.translation && (
+                  <div className="mt-1.5 border-l-2 border-slate-200 pl-2 dark:border-slate-600">
+                    <p dir="auto" className="whitespace-pre-line text-sm text-slate-600 dark:text-slate-300">
+                      {q.translation}
+                    </p>
+                    {q.question_type === 'mcq' && q.options_translated && q.options_translated.length > 0 && (
+                      <ul className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        {q.options_translated.map((o) => (
+                          <li key={o.key} dir="auto">
+                            <span className="font-semibold">{o.key})</span> {o.text}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {subjectById.get(q.subject_id)?.name ?? '—'}
                   {q.chapter ? ` · ${q.chapter}` : ''} · {q.marks} marks
@@ -358,6 +389,26 @@ export function QuestionBankPage() {
                 <McqOptionsEditor
                   options={form.options}
                   onChange={(options) => setForm({ ...form, options })}
+                />
+              </Field>
+            )}
+            {/* Optional on purpose. A language subject has no meaningful other
+                version, and an empty box saves nothing rather than saving a
+                translation nobody checked. */}
+            <Field label="Other language (optional)">
+              <Textarea
+                dir="auto"
+                rows={2}
+                value={form.translation}
+                placeholder="The same question in Urdu, or in English — leave empty if it has no useful translation."
+                onChange={(e) => setForm({ ...form, translation: e.target.value })}
+              />
+            </Field>
+            {form.question_type === 'mcq' && form.translation.trim() && (
+              <Field label="Options in the other language">
+                <McqOptionsEditor
+                  options={form.options_translated}
+                  onChange={(options_translated) => setForm({ ...form, options_translated })}
                 />
               </Field>
             )}

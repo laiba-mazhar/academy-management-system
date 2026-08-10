@@ -29,7 +29,23 @@ const MAX_PAGES = 4
 // to time out than to succeed.
 const MAX_TOTAL_BASE64 = 8_000_000
 
-function prompt(exercisesOnly: boolean): string {
+// Asked for only where a translation is meaningful. The academy teaches the
+// same maths to Urdu-medium and English-medium classes, so one question is
+// wanted in both; a language subject is the opposite case and is excluded by
+// the caller, because translating "underline the correct spelling" removes the
+// thing being examined.
+//
+// The original is never displaced by this: "text" stays exactly as printed and
+// the other language goes in its own field.
+const TRANSLATION_RULES = `
+Translating:
+- Set "language" to the language the question is printed in: "ur" for Urdu, "en" for English.
+- Put the same question in the other language in "translation" — English if the page is Urdu, Urdu if the page is English. Never change "text" itself.
+- Translate the meaning as a teacher would set the same question to the other medium, not word by word. Keep every number, symbol, unit and proper noun exactly as it is.
+- For an mcq, translate the choices too, into "options_translated", using the same labels in the same order as "options".
+- If a question cannot be carried into the other language without changing what it tests — it is about grammar, spelling, poetry, or a passage in the printed language itself — leave "translation" out rather than forcing one.`
+
+function prompt(exercisesOnly: boolean, translate: boolean): string {
   return `You are reading ${exercisesOnly ? 'pages of a textbook' : 'pages of an exam paper or question sheet'}. List every question printed on them.
 
 Reproducing the text:
@@ -62,37 +78,55 @@ Leave out entirely:
 - Names of sections on their own.
 ${exercisesOnly ? '- Lesson text, worked examples, definitions and summaries. Take questions ONLY from exercise, review, practice, activity and مشق sections — the parts that ask the student to do something.\n' : ''}
 Put the printed marks in "marks" when the page shows them for that question, as a number. Leave "marks" out when the page does not say. Put the chapter or exercise number in "chapter" when the page shows one, like "2.3" or "Exercise 5.1".
-
+${translate ? TRANSLATION_RULES : ''}
 If there are no questions on these pages, return an empty list.`
 }
 
-const RESPONSE_SCHEMA = {
+const OPTION_LIST = {
   type: 'ARRAY',
   items: {
     type: 'OBJECT',
-    properties: {
-      type: { type: 'STRING' },
-      text: { type: 'STRING' },
-      options: {
-        type: 'ARRAY',
-        items: {
-          type: 'OBJECT',
-          properties: { key: { type: 'STRING' }, text: { type: 'STRING' } },
-          required: ['key', 'text'],
-          propertyOrdering: ['key', 'text'],
-        },
-      },
-      marks: { type: 'NUMBER' },
-      chapter: { type: 'STRING' },
-    },
-    required: ['type', 'text'],
-    propertyOrdering: ['type', 'text', 'options', 'marks', 'chapter'],
+    properties: { key: { type: 'STRING' }, text: { type: 'STRING' } },
+    required: ['key', 'text'],
+    propertyOrdering: ['key', 'text'],
   },
+}
+
+// Built per request: asking for translation fields on a language subject would
+// invite the model to fill them in anyway.
+function responseSchema(translate: boolean) {
+  const properties: Record<string, unknown> = {
+    type: { type: 'STRING' },
+    text: { type: 'STRING' },
+    options: OPTION_LIST,
+    marks: { type: 'NUMBER' },
+    chapter: { type: 'STRING' },
+  }
+  const ordering = ['type', 'text', 'options', 'marks', 'chapter']
+
+  if (translate) {
+    properties.language = { type: 'STRING' }
+    properties.translation = { type: 'STRING' }
+    properties.options_translated = OPTION_LIST
+    ordering.push('language', 'translation', 'options_translated')
+  }
+
+  return {
+    type: 'ARRAY',
+    items: {
+      type: 'OBJECT',
+      properties,
+      required: ['type', 'text'],
+      propertyOrdering: ordering,
+    },
+  }
 }
 
 interface RequestBody {
   pages?: ImagePart[]
   exercisesOnly?: boolean
+  /** Off for language subjects, where a translation replaces what is examined. */
+  translate?: boolean
 }
 
 interface RawQuestion {
@@ -101,7 +135,12 @@ interface RawQuestion {
   options?: unknown
   marks?: unknown
   chapter?: unknown
+  language?: unknown
+  translation?: unknown
+  options_translated?: unknown
 }
+
+type QuestionLanguage = 'ur' | 'en'
 
 export interface ExtractedQuestion {
   type: QuestionType
@@ -109,6 +148,26 @@ export interface ExtractedQuestion {
   options: { key: string; text: string }[]
   marks: number | null
   chapter: string | null
+  language: QuestionLanguage | null
+  translation: string | null
+  optionsTranslated: { key: string; text: string }[]
+}
+
+// Arabic script is the tell for Urdu. Used when the model does not label the
+// language, so a row is never left unlabelled just because a field was missed.
+const ARABIC_SCRIPT = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/
+
+function optionList(raw: unknown): { key: string; text: string }[] {
+  const list: { key: string; text: string }[] = []
+  if (!Array.isArray(raw)) return list
+  for (const entry of raw) {
+    const option = entry as { key?: unknown; text?: unknown }
+    const text = typeof option.text === 'string' ? option.text.trim() : ''
+    if (!text) continue
+    const key = typeof option.key === 'string' && option.key.trim() ? option.key.trim() : ''
+    list.push({ key: key || String.fromCharCode(65 + list.length), text })
+  }
+  return list
 }
 
 // The schema constrains the shape but not the values — "type" is still free
@@ -142,16 +201,7 @@ function normalise(raw: RawQuestion): ExtractedQuestion | null {
     type = 'long'
   }
 
-  const options: { key: string; text: string }[] = []
-  if (Array.isArray(raw.options)) {
-    for (const entry of raw.options) {
-      const option = entry as { key?: unknown; text?: unknown }
-      const optionText = typeof option.text === 'string' ? option.text.trim() : ''
-      if (!optionText) continue
-      const key = typeof option.key === 'string' && option.key.trim() ? option.key.trim() : ''
-      options.push({ key: key || String.fromCharCode(65 + options.length), text: optionText })
-    }
-  }
+  const options = optionList(raw.options)
   // A question the model labelled mcq but gave no choices for is a short
   // question as far as the paper builder is concerned — an mcq with no options
   // prints as an empty list.
@@ -162,7 +212,32 @@ function normalise(raw: RawQuestion): ExtractedQuestion | null {
 
   const chapter = typeof raw.chapter === 'string' && raw.chapter.trim() ? raw.chapter.trim() : null
 
-  return { type, text, options, marks, chapter }
+  const languageWord = typeof raw.language === 'string' ? raw.language.trim().toLowerCase() : ''
+  const language: QuestionLanguage =
+    languageWord === 'ur' || languageWord === 'urdu'
+      ? 'ur'
+      : languageWord === 'en' || languageWord === 'english'
+        ? 'en'
+        : ARABIC_SCRIPT.test(text)
+          ? 'ur'
+          : 'en'
+
+  // A translation identical to the original is the model echoing rather than
+  // translating, which is worth nothing and only clutters the review screen.
+  const translationText = typeof raw.translation === 'string' ? raw.translation.trim() : ''
+  const translation = translationText && translationText !== text ? translationText : null
+
+  return {
+    type,
+    text,
+    options,
+    marks,
+    chapter,
+    language,
+    translation,
+    // Choices without a translated stem would print half in each language.
+    optionsTranslated: translation ? optionList(raw.options_translated) : [],
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -203,9 +278,10 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Those pages are too large to read at once. Try fewer pages.' }, 413)
   }
 
-  const result = await callGemini(prompt(body.exercisesOnly === true), pages, {
+  const translate = body.translate === true
+  const result = await callGemini(prompt(body.exercisesOnly === true, translate), pages, {
     maxOutputTokens: 32768,
-    responseSchema: RESPONSE_SCHEMA,
+    responseSchema: responseSchema(translate),
   })
   if (!result.ok) return result.response
 

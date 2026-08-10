@@ -1,4 +1,4 @@
-import type { QuestionDifficulty, QuestionOption, QuestionType } from '@/types/database'
+import type { QuestionDifficulty, QuestionLanguage, QuestionOption, QuestionType } from '@/types/database'
 
 // Turns the text of a past paper — extracted from a PDF or pasted straight out
 // of Word — into draft questions for the import review screen.
@@ -18,6 +18,12 @@ export interface DraftQuestion {
   marks: string
   chapter: string
   difficulty: QuestionDifficulty | ''
+  /** Language of `text` as printed. Null when nothing has decided. */
+  language: QuestionLanguage | null
+  /** The same question in the other language. Empty when there isn't one. */
+  translation: string
+  /** MCQ choices in the other language. Empty unless `translation` is set. */
+  optionsTranslated: QuestionOption[]
   /** Why the parser picked this type — shown as a hint in the review grid. */
   reason: string
   /** The guess came from shape alone. These sort to the top for review. */
@@ -320,6 +326,9 @@ function finish(building: Building, index: number): DraftQuestion[] {
       marks: perPart,
       chapter: '',
       difficulty: '',
+      language: null,
+      translation: '',
+      optionsTranslated: [],
       reason: product ? `Split — ${product[2]} marks each` : 'Split from a list',
       uncertain: false,
     }))
@@ -341,6 +350,9 @@ function finish(building: Building, index: number): DraftQuestion[] {
       marks: building.marks || defaultMarks(type),
       chapter: '',
       difficulty: '',
+      language: null,
+      translation: '',
+      optionsTranslated: [],
       reason,
       uncertain,
     },
