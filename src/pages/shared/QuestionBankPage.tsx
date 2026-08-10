@@ -6,7 +6,6 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { QuestionImport } from '@/components/QuestionImport'
-import { BookLibrary } from '@/components/BookLibrary'
 import { SnipImage } from '@/components/SnipImage'
 import { QuestionBankPrintTarget } from '@/components/QuestionBankSheet'
 import { chapterKey, chapterOrder } from '@/lib/chapters'
@@ -26,7 +25,6 @@ export function QuestionBankPage() {
   const [subjectFilter, setSubjectFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState<'all' | QuestionType>('all')
   const [showImport, setShowImport] = useState(false)
-  const [showBooks, setShowBooks] = useState(false)
   const [snipPages, setSnipPages] = useState<Map<string, SourceBookPage>>(new Map())
   const [snipUrls, setSnipUrls] = useState<Map<string, string>>(new Map())
   const [sourceFilter, setSourceFilter] = useState('all')
@@ -277,11 +275,8 @@ export function QuestionBankPage() {
           <Button variant="secondary" onClick={openPrint} disabled={questions.length === 0}>
             Print bank
           </Button>
-          <Button variant="secondary" onClick={() => setShowBooks(true)} disabled={subjects.length === 0}>
-            Scanned books
-          </Button>
           <Button variant="secondary" onClick={() => setShowImport(true)} disabled={subjects.length === 0}>
-            Import from past paper
+            Import
           </Button>
           <Button onClick={openCreate} disabled={subjects.length === 0}>
             + Add Question
@@ -590,15 +585,6 @@ export function QuestionBankPage() {
               ? ''
               : (classById.get(subjectById.get(printForm.subject_id)?.class_id ?? '')?.name ?? '')
           }
-        />
-      )}
-
-      {showBooks && (
-        <BookLibrary
-          subjects={subjects}
-          classes={classes}
-          onClose={() => setShowBooks(false)}
-          onQuestionAdded={load}
         />
       )}
 

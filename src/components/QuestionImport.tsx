@@ -333,7 +333,7 @@ export function QuestionImport({
     <Modal
       title={
         step === 'source'
-          ? 'Import questions from a past paper'
+          ? 'Import questions'
           : step === 'verify'
             ? 'Check what was read'
             : `Review ${drafts.length} questions`
@@ -392,7 +392,7 @@ export function QuestionImport({
                     ? 'Reading the PDF...'
                     : pdfFile
                       ? `${pdfFile.name} — choose a different PDF`
-                      : 'Choose a past paper PDF'}
+                      : 'Choose a PDF'}
                 </p>
                 <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                   The file is read in your browser and never uploaded.
