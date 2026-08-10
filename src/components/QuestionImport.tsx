@@ -6,7 +6,13 @@ import { Modal } from '@/components/ui/Modal'
 import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { extractPdfText, ScannedPdfError } from '@/lib/pdfText'
 import { ocrPdf, OcrGibberishError, OCR_LANGUAGES, type OcrLanguage, type OcrProgress } from '@/lib/pdfOcr'
-import { dedupeKey, looksLikeGibberish, parseQuestions, type DraftQuestion } from '@/lib/questionParser'
+import {
+  dedupeKey,
+  looksLikeGibberish,
+  looksUnreadable,
+  parseQuestions,
+  type DraftQuestion,
+} from '@/lib/questionParser'
 import {
   countPdfPages,
   parsePageRange,
@@ -72,6 +78,9 @@ export function QuestionImport({
   const [wantTranslation, setWantTranslation] = useState(true)
   const [aiProgress, setAiProgress] = useState<AiReadProgress | null>(null)
   const [readByAi, setReadByAi] = useState(false)
+  // Set when the PDF has a text layer that cannot be displayed — a legacy
+  // Urdu font, typically. Parsing it would produce a screen of boxes.
+  const [textUnreadable, setTextUnreadable] = useState(false)
   const [aiNote, setAiNote] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -129,6 +138,7 @@ export function QuestionImport({
     setScannedFile(null)
     setPdfFile(file)
     setPageRange('')
+    setTextUnreadable(false)
     try {
       setPageCount(await countPdfPages(file))
     } catch {
@@ -137,6 +147,14 @@ export function QuestionImport({
     }
     try {
       const text = await extractPdfText(file)
+      // A PDF typeset in InPage or another pre-Unicode font still carries a
+      // text layer, but its codepoints are not the characters they are drawn
+      // as. Parsing that gives a hundred rows of boxes, which is worse than
+      // saying so — the AI reader looks at the page instead and is unaffected.
+      if (looksUnreadable(text)) {
+        setTextUnreadable(true)
+        return
+      }
       runParse(text, file.name)
     } catch (err) {
       if (err instanceof ScannedPdfError) {
@@ -191,6 +209,7 @@ export function QuestionImport({
       setReadByAi(true)
       setAiNote(result.stoppedEarly)
       setScannedFile(null)
+      setTextUnreadable(false)
       setStep('review')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read that file with AI.')
@@ -446,6 +465,20 @@ export function QuestionImport({
                   replace the very thing it tests — change that on the subject if it is wrong.
                 </p>
               )}
+            </div>
+          )}
+
+          {textUnreadable && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 dark:border-amber-800/60 dark:bg-amber-950/30">
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                The text inside this PDF cannot be read
+              </p>
+              <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90">
+                It has a text layer, but the characters in it are not the ones printed on the page — this is what
+                happens with Urdu typeset in InPage and other older programs. Pulling it out gives rows of empty
+                boxes, so it has not been imported. <strong>Read it with AI above</strong> instead: that looks at the
+                pages as pictures and is not affected by how the file was typeset.
+              </p>
             </div>
           )}
 

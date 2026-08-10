@@ -112,6 +112,13 @@ const INLINE_MARKERS = /(?:^|\s)\(?((?:i{1,3}v?|iv|vi{0,3}|ix|xi{0,3}|x|[a-hA-H]
 const TRAILING_MARKS = /[([]\s*(\d+(?:\.\d+)?)\s*(?:marks?)?\s*[)\]]\s*$/i
 // "Attempt any six questions" — an instruction, not a question.
 const INSTRUCTION = /^\s*(attempt|answer)\s+(any|all)\b/i
+// "Q:2 (C) Q:3 (C) Q:4 (D)" — the answer key printed at the foot of a paper, or
+// on its own page. Three or more question/letter pairs on one line is a key;
+// a real question never looks like that.
+const ANSWER_KEY = /(?:q\s*[:.]?\s*\d{1,2}\s*[.:)-]?\s*\(?[a-d]\)?[\s,;]*){3,}/i
+// The heading above one. Without this the words attach themselves to whatever
+// question came last.
+const ANSWER_KEY_HEADING = /^\s*(answer\s*key|marking\s*scheme|key\s*answers?)\b/i
 // "Name: Roll#: Class: Inter Part-II Subject: English-12 Date: Time:" — the
 // particulars strip off the top of a paper. Several "Label:" pairs on one line
 // is what distinguishes it from a question that merely contains a colon, and
@@ -237,7 +244,13 @@ export function parseQuestions(raw: string): ParseResult {
       continue
     }
 
-    if (INSTRUCTION.test(line) || PARTICULARS.test(line) || isFormField(line)) {
+    if (
+      INSTRUCTION.test(line) ||
+      PARTICULARS.test(line) ||
+      ANSWER_KEY.test(line) ||
+      ANSWER_KEY_HEADING.test(line) ||
+      isFormField(line)
+    ) {
       flush()
       continue
     }
@@ -490,6 +503,33 @@ export function looksLikeGibberish(text: string): boolean {
     words.filter((w) => /\p{L}/u.test(w) && /[^\p{L}\p{N}]/u.test(w)).length / words.length
 
   return short > SHORT_TOKEN_LIMIT || (short > MIXED_SHORT_LIMIT && symbolly > SYMBOL_TOKEN_LIMIT)
+}
+
+// Text that came out of a PDF but cannot be displayed — the boxes a reader sees
+// instead of letters.
+//
+// Urdu papers are very often typeset in InPage or another pre-Unicode font. The
+// PDF then carries a text layer that looks real to pdf.js but whose codepoints
+// are private-use or simply not the characters they are drawn as. Extracting it
+// gives glyph soup, and the parser will happily cut that into a hundred
+// "questions" — which is exactly what it did.
+//
+// Deliberately separate from looksLikeGibberish. That measures the *shape* of
+// recognised words, and real Urdu trips it (Urdu has many two-letter words).
+// This measures whether the characters can be rendered at all, which Urdu in
+// proper Unicode passes cleanly.
+const PRIVATE_USE = /[-]/u
+const REPLACEMENT = /�/u
+// Above this share of unrenderable characters, the text layer is not text.
+const UNREADABLE_LIMIT = 0.04
+const UNREADABLE_MIN_CHARS = 60
+
+export function looksUnreadable(text: string): boolean {
+  const chars = [...text].filter((c) => !/\s/.test(c))
+  if (chars.length < UNREADABLE_MIN_CHARS) return false
+
+  const broken = chars.filter((c) => PRIVATE_USE.test(c) || REPLACEMENT.test(c)).length
+  return broken / chars.length > UNREADABLE_LIMIT
 }
 
 // Two questions imported from ten years of past papers are very often the same
