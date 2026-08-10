@@ -8,6 +8,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Input'
 import { QuestionImport } from '@/components/QuestionImport'
 import { BookLibrary } from '@/components/BookLibrary'
 import { SnipImage } from '@/components/SnipImage'
+import { QuestionBankPrintTarget } from '@/components/QuestionBankSheet'
 import { signPages } from '@/lib/sourceBooks'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
 import { SymbolPad } from '@/components/SymbolPad'
@@ -29,6 +30,9 @@ export function QuestionBankPage() {
   const [snipUrls, setSnipUrls] = useState<Map<string, string>>(new Map())
   const [sourceFilter, setSourceFilter] = useState('all')
   const [purgeSource, setPurgeSource] = useState<string | null>(null)
+  // Held only while the browser's print dialog is open: the sheet is mounted
+  // into a portal, printed, and taken straight back out.
+  const [printing, setPrinting] = useState(false)
 
   const [form, setForm] = useState<{
     id: string | null
@@ -192,6 +196,19 @@ export function QuestionBankPage() {
     setPurgeSource(null)
   }
 
+  // Printing what is on screen, not the whole bank: the subject, type and
+  // source filters above are how a teacher picks a chapter's worth of
+  // questions, and printing something other than what they just narrowed to
+  // would be a surprise.
+  function handlePrint() {
+    setPrinting(true)
+    // One frame for the portal to mount before the dialog blocks the thread.
+    requestAnimationFrame(() => {
+      window.print()
+      setPrinting(false)
+    })
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return
     const { error } = await supabase.from('questions').delete().eq('id', deleteTarget.id)
@@ -205,12 +222,15 @@ export function QuestionBankPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="no-print flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Question Bank</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">Organize questions by subject and chapter for exam papers.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="secondary" onClick={handlePrint} disabled={filtered.length === 0}>
+            Print bank
+          </Button>
           <Button variant="secondary" onClick={() => setShowBooks(true)} disabled={subjects.length === 0}>
             Scanned books
           </Button>
@@ -430,6 +450,20 @@ export function QuestionBankPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {printing && (
+        <QuestionBankPrintTarget
+          questions={filtered}
+          subjectName={
+            subjectFilter === 'all' ? 'All subjects' : (subjectById.get(subjectFilter)?.name ?? 'All subjects')
+          }
+          className={
+            subjectFilter === 'all'
+              ? ''
+              : (classById.get(subjectById.get(subjectFilter)?.class_id ?? '')?.name ?? '')
+          }
+        />
       )}
 
       {showBooks && (

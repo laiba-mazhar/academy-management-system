@@ -174,6 +174,11 @@ export async function readQuestionsWithAi(
   let pagesRead = 0
   let stoppedEarly: string | null = null
   let resumeFrom: number | null = null
+  // A chapter heading is printed once and then the exercises run for pages
+  // without repeating it, so the last one seen carries forward. Without this
+  // only the handful of questions sharing a page with the heading get filed,
+  // and the rest arrive unlabelled.
+  let currentChapter = ''
 
   try {
     for (let start = range.from; start <= range.to; start += PAGES_PER_CALL) {
@@ -210,7 +215,8 @@ export async function readQuestionsWithAi(
         const key = dedupeKey(question.text)
         if (key && seen.has(key)) continue
         if (key) seen.add(key)
-        drafts.push(toDraft(question, start, drafts.length))
+        if (question.chapter) currentChapter = question.chapter
+        drafts.push(toDraft(question, start, drafts.length, currentChapter))
       }
 
       pagesRead = end - range.from + 1
@@ -223,7 +229,12 @@ export async function readQuestionsWithAi(
   return { drafts, pagesRead, stoppedEarly, resumeFrom }
 }
 
-function toDraft(question: ExtractedQuestion, page: number, index: number): DraftQuestion {
+function toDraft(
+  question: ExtractedQuestion,
+  page: number,
+  index: number,
+  chapterSoFar: string
+): DraftQuestion {
   return {
     key: `ai-${page}-${index}-${Math.random().toString(36).slice(2, 8)}`,
     questionType: question.type,
@@ -232,7 +243,7 @@ function toDraft(question: ExtractedQuestion, page: number, index: number): Draf
     // A textbook exercise carries no marks at all, so the type's usual value
     // stands in and the review screen's bulk field corrects it in one go.
     marks: question.marks !== null ? String(question.marks) : defaultMarks(question.type),
-    chapter: question.chapter ?? '',
+    chapter: question.chapter ?? chapterSoFar,
     difficulty: '',
     language: question.language,
     translation: question.translation ?? '',

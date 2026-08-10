@@ -77,7 +77,13 @@ Leave out entirely:
 - Answer keys, marking schemes and worked solutions.
 - Names of sections on their own.
 ${exercisesOnly ? '- Lesson text, worked examples, definitions and summaries. Take questions ONLY from exercise, review, practice, activity and مشق sections — the parts that ask the student to do something.\n' : ''}
-Put the printed marks in "marks" when the page shows them for that question, as a number. Leave "marks" out when the page does not say. Put the chapter or exercise number in "chapter" when the page shows one, like "2.3" or "Exercise 5.1".
+Put the printed marks in "marks" when the page shows them for that question, as a number. Leave "marks" out when the page does not say.
+
+Say which chapter each question belongs to, in "chapter", as "Chapter 5". Work it out from whatever the page shows, in this order of preference:
+- A chapter heading on the page: "Chapter 5", "Unit 5", "باب ٥".
+- The running head along the top or bottom of the page, which usually repeats the chapter.
+- The exercise number: "Exercise 5.1" and "مشق ٥٫١" both mean Chapter 5.
+Use the digits as a plain number even when the page prints them in Urdu or Arabic numerals, so "باب ٥" becomes "Chapter 5". If nothing on the page says which chapter it is, leave "chapter" out rather than guessing — the app carries the chapter forward from the pages before it.
 ${translate ? TRANSLATION_RULES : ''}
 If there are no questions on these pages, return an empty list.`
 }
@@ -183,6 +189,29 @@ function optionList(raw: unknown): { key: string; text: string }[] {
 // list of values like "1/4, 3/5".
 const OWN_NUMBER = /^\s*q(?:uestion)?\s*\.?\s*(?:no)?\s*[.:\-–]?\s*\d{1,3}\s*[).:\-–]?\s*/i
 
+// Chapters are wanted in one shape — "Chapter 5" — so the bank groups and
+// prints tidily instead of scattering the same chapter across "Ch 5",
+// "Exercise 5.1", "Unit 5" and "٥". Urdu and Arabic digits are folded to
+// Western ones first, because a textbook prints them in its own script.
+const EASTERN_DIGITS: Record<string, string> = {
+  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+}
+
+function normaliseChapter(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const text = raw.replace(/[٠-٩۰-۹]/g, (d) => EASTERN_DIGITS[d] ?? d).trim()
+  if (!text) return null
+
+  // "Chapter 5", "Ch. 5", "Unit 5", "باب 5", "Exercise 5.1", or a bare "5" —
+  // in every case the leading number is the chapter.
+  const match = /(\d{1,2})/.exec(text)
+  if (!match) return text // a named chapter with no number: keep it as written
+  return `Chapter ${Number(match[1])}`
+}
+
 function normalise(raw: RawQuestion): ExtractedQuestion | null {
   const text = typeof raw.text === 'string' ? raw.text.replace(OWN_NUMBER, '').trim() : ''
   if (!text) return null
@@ -210,7 +239,7 @@ function normalise(raw: RawQuestion): ExtractedQuestion | null {
   const marksNumber = typeof raw.marks === 'number' ? raw.marks : Number(raw.marks)
   const marks = Number.isFinite(marksNumber) && marksNumber > 0 ? marksNumber : null
 
-  const chapter = typeof raw.chapter === 'string' && raw.chapter.trim() ? raw.chapter.trim() : null
+  const chapter = normaliseChapter(raw.chapter)
 
   const languageWord = typeof raw.language === 'string' ? raw.language.trim().toLowerCase() : ''
   const language: QuestionLanguage =
