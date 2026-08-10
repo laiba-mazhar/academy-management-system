@@ -9,6 +9,7 @@ import { QuestionImport } from '@/components/QuestionImport'
 import { BookLibrary } from '@/components/BookLibrary'
 import { SnipImage } from '@/components/SnipImage'
 import { QuestionBankPrintTarget } from '@/components/QuestionBankSheet'
+import { chapterKey, chapterOrder } from '@/lib/chapters'
 import { signPages } from '@/lib/sourceBooks'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
 import { SymbolPad } from '@/components/SymbolPad'
@@ -33,6 +34,14 @@ export function QuestionBankPage() {
   // Held only while the browser's print dialog is open: the sheet is mounted
   // into a portal, printed, and taken straight back out.
   const [printing, setPrinting] = useState(false)
+  // What to print is asked for rather than taken from the page's filters. A
+  // booklet is handed out per chapter, and the filters above are set for
+  // browsing — the two are rarely the same thing.
+  const [printForm, setPrintForm] = useState<{
+    subject_id: string
+    source: string
+    chapter: string
+  } | null>(null)
 
   const [form, setForm] = useState<{
     id: string | null
@@ -108,6 +117,40 @@ export function QuestionBankPage() {
       (typeFilter === 'all' || q.question_type === typeFilter) &&
       (sourceFilter === 'all' || q.source === sourceFilter)
   )
+
+  // Everything the print dialog's own filters select, independent of the
+  // browsing filters behind it.
+  const printQuestions = useMemo(() => {
+    if (!printForm) return []
+    return questions.filter(
+      (q) =>
+        (printForm.subject_id === 'all' || q.subject_id === printForm.subject_id) &&
+        (printForm.source === 'all' || q.source === printForm.source) &&
+        (printForm.chapter === 'all' || chapterKey(q.chapter) === printForm.chapter)
+    )
+  }, [questions, printForm])
+
+  // Only the sources and chapters that exist within what is already chosen, so
+  // the dialog cannot offer a combination that prints nothing.
+  const printSources = useMemo(() => {
+    if (!printForm) return []
+    const within = questions.filter(
+      (q) => printForm.subject_id === 'all' || q.subject_id === printForm.subject_id
+    )
+    return [...new Set(within.map((q) => q.source).filter((x): x is string => !!x))].sort()
+  }, [questions, printForm])
+
+  const printChapters = useMemo(() => {
+    if (!printForm) return []
+    const within = questions.filter(
+      (q) =>
+        (printForm.subject_id === 'all' || q.subject_id === printForm.subject_id) &&
+        (printForm.source === 'all' || q.source === printForm.source)
+    )
+    return [...new Set(within.map((q) => chapterKey(q.chapter)))].sort(
+      (a, b) => chapterOrder(a) - chapterOrder(b) || a.localeCompare(b)
+    )
+  }, [questions, printForm])
 
   function openCreate() {
     setForm({
@@ -196,16 +239,19 @@ export function QuestionBankPage() {
     setPurgeSource(null)
   }
 
-  // Printing what is on screen, not the whole bank: the subject, type and
-  // source filters above are how a teacher picks a chapter's worth of
-  // questions, and printing something other than what they just narrowed to
-  // would be a surprise.
-  function handlePrint() {
+  function openPrint() {
+    // Seeded from the browsing filters, since a teacher who has just narrowed
+    // to a subject almost certainly wants that one.
+    setPrintForm({ subject_id: subjectFilter, source: sourceFilter, chapter: 'all' })
+  }
+
+  function runPrint() {
     setPrinting(true)
     // One frame for the portal to mount before the dialog blocks the thread.
     requestAnimationFrame(() => {
       window.print()
       setPrinting(false)
+      setPrintForm(null)
     })
   }
 
@@ -228,7 +274,7 @@ export function QuestionBankPage() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Organize questions by subject and chapter for exam papers.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={handlePrint} disabled={filtered.length === 0}>
+          <Button variant="secondary" onClick={openPrint} disabled={questions.length === 0}>
             Print bank
           </Button>
           <Button variant="secondary" onClick={() => setShowBooks(true)} disabled={subjects.length === 0}>
@@ -452,16 +498,86 @@ export function QuestionBankPage() {
         </Modal>
       )}
 
-      {printing && (
+      {printForm && !printing && (
+        <Modal title="Print question bank" onClose={() => setPrintForm(null)}>
+          <div className="space-y-3">
+            <Field label="Subject">
+              <Select
+                value={printForm.subject_id}
+                onChange={(e) =>
+                  // Narrowing the subject can strip the chosen source and
+                  // chapter of any meaning, so both reset rather than silently
+                  // selecting nothing.
+                  setPrintForm({ subject_id: e.target.value, source: 'all', chapter: 'all' })
+                }
+              >
+                <option value="all">All subjects</option>
+                {subjects.map((sub) => (
+                  <option key={sub.id} value={sub.id}>
+                    {sub.name} ({classById.get(sub.class_id)?.name ?? '?'})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="Source">
+              <Select
+                value={printForm.source}
+                onChange={(e) => setPrintForm({ ...printForm, source: e.target.value, chapter: 'all' })}
+              >
+                <option value="all">Any source</option>
+                {printSources.map((src) => (
+                  <option key={src} value={src}>
+                    {src}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="Chapter">
+              <Select
+                value={printForm.chapter}
+                onChange={(e) => setPrintForm({ ...printForm, chapter: e.target.value })}
+              >
+                <option value="all">All chapters</option>
+                {printChapters.map((ch) => (
+                  <option key={ch} value={ch}>
+                    {ch}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+              {printQuestions.length === 0
+                ? 'Nothing matches — nothing would print.'
+                : `${printQuestions.length} question${printQuestions.length === 1 ? '' : 's'} will print, grouped by chapter.`}
+            </p>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="secondary" onClick={() => setPrintForm(null)}>
+                Cancel
+              </Button>
+              <Button onClick={runPrint} disabled={printQuestions.length === 0}>
+                Print
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {printing && printForm && (
         <QuestionBankPrintTarget
-          questions={filtered}
+          questions={printQuestions}
           subjectName={
-            subjectFilter === 'all' ? 'All subjects' : (subjectById.get(subjectFilter)?.name ?? 'All subjects')
+            printForm.subject_id === 'all'
+              ? 'All subjects'
+              : (subjectById.get(printForm.subject_id)?.name ?? 'All subjects')
           }
           className={
-            subjectFilter === 'all'
+            printForm.subject_id === 'all'
               ? ''
-              : (classById.get(subjectById.get(subjectFilter)?.class_id ?? '')?.name ?? '')
+              : (classById.get(subjectById.get(printForm.subject_id)?.class_id ?? '')?.name ?? '')
           }
         />
       )}

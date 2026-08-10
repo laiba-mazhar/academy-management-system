@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import logoUrl from '@/assets/maktab_logo_transparent.png'
 import { RULE_BLUE, SCHOOL_ADDRESS, SCHOOL_NAME, SCHOOL_TAGLINE, TAGLINE_NAVY } from '@/lib/examPaper'
+import { chapterKey, chapterOrder } from '@/lib/chapters'
 import { QUESTION_TYPE_LABELS } from '@/lib/questionTypes'
 import type { Question } from '@/types/database'
 
@@ -14,15 +15,6 @@ import type { Question } from '@/types/database'
 // against A4 for the same reason as the exam sheet — the preview is the printed
 // size, and printing needs no scaling.
 
-const UNFILED = 'Unfiled'
-
-/** Chapters sort by their number, so Chapter 10 follows Chapter 9, not Chapter 1. */
-function chapterOrder(name: string): number {
-  if (name === UNFILED) return Number.MAX_SAFE_INTEGER
-  const match = /(\d+)/.exec(name)
-  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER - 1
-}
-
 export interface QuestionBankSheetProps {
   questions: Question[]
   subjectName: string
@@ -33,7 +25,7 @@ export function QuestionBankSheet({ questions, subjectName, className }: Questio
   const chapters = useMemo(() => {
     const groups = new Map<string, Question[]>()
     for (const q of questions) {
-      const key = q.chapter?.trim() || UNFILED
+      const key = chapterKey(q.chapter)
       const list = groups.get(key)
       if (list) list.push(q)
       else groups.set(key, [q])
