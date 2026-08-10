@@ -59,7 +59,11 @@ export function ExamPaperSheet({ paper }: { paper: QuestionPaper }) {
         >
           {SCHOOL_TAGLINE}
         </p>
-        <div style={{ height: '1pt', background: RULE_BLUE, marginLeft: '30mm', marginTop: '1mm' }} />
+        {/* A border, not a background colour. Chrome's print dialog leaves
+            "Background graphics" off by default, and a rule drawn as a
+            background simply is not there on the paper — the crest survives
+            only because an <img> is not a background. */}
+        <div style={{ borderTop: `1pt solid ${RULE_BLUE}`, marginLeft: '30mm', marginTop: '1mm' }} />
         {/* Clears the crest on its left: the line is centred on the sheet, so
             at the narrower printed width it would otherwise run into it. */}
         <p className="text-center" style={{ fontSize: '8.5pt', marginTop: '2.5mm', paddingLeft: '26mm' }}>

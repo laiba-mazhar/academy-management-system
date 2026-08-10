@@ -69,7 +69,11 @@ export function QuestionBankSheet({ questions, subjectName, className }: Questio
         >
           {SCHOOL_TAGLINE}
         </p>
-        <div style={{ height: '1pt', background: RULE_BLUE, marginLeft: '30mm', marginTop: '1mm' }} />
+        {/* A border, not a background colour. Chrome's print dialog leaves
+            "Background graphics" off by default, and a rule drawn as a
+            background simply is not there on the paper — the crest survives
+            only because an <img> is not a background. */}
+        <div style={{ borderTop: `1pt solid ${RULE_BLUE}`, marginLeft: '30mm', marginTop: '1mm' }} />
         <p className="text-center" style={{ fontSize: '8.5pt', marginTop: '2.5mm', paddingLeft: '26mm' }}>
           {SCHOOL_ADDRESS}
         </p>
@@ -83,7 +87,7 @@ export function QuestionBankSheet({ questions, subjectName, className }: Questio
         <span>QUESTION BANK — {subjectName.toUpperCase()}</span>
         <span>{questions.length} QUESTIONS</span>
       </div>
-      <div style={{ height: '0.5pt', background: '#000', marginTop: '1.5mm' }} />
+      <div style={{ borderTop: '0.5pt solid #000', marginTop: '1.5mm' }} />
 
       {questions.length === 0 ? (
         <p className="relative text-center" style={{ fontSize: '11pt', marginTop: '20mm' }}>
@@ -105,7 +109,7 @@ export function QuestionBankSheet({ questions, subjectName, className }: Questio
                 {'  '}· {total} question{total === 1 ? '' : 's'}
               </span>
             </h2>
-            <div style={{ height: '0.5pt', background: RULE_BLUE, marginTop: '1mm', marginBottom: '2mm' }} />
+            <div style={{ borderTop: `0.5pt solid ${RULE_BLUE}`, marginTop: '1mm', marginBottom: '2mm' }} />
 
             {sections.map((section) => (
             <div key={section.type} style={{ marginBottom: '3mm' }}>
