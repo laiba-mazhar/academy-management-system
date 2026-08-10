@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import logoUrl from '@/assets/maktab_logo_transparent.png'
 import { RULE_BLUE, SCHOOL_ADDRESS, SCHOOL_NAME, SCHOOL_TAGLINE, TAGLINE_NAVY } from '@/lib/examPaper'
 import { chapterKey, chapterOrder } from '@/lib/chapters'
-import { QUESTION_TYPE_LABELS } from '@/lib/questionTypes'
+import { bySection } from '@/lib/questionTypes'
 import type { Question } from '@/types/database'
 
 // The question bank as a printed booklet: the same letterhead, rule and
@@ -22,6 +22,9 @@ export interface QuestionBankSheetProps {
 }
 
 export function QuestionBankSheet({ questions, subjectName, className }: QuestionBankSheetProps) {
+  // Chapter first, then a section per kind of question within it, the way a
+  // paper is laid out — objective before written. A teacher building a paper
+  // reads down to the section they need rather than sifting a mixed list.
   const chapters = useMemo(() => {
     const groups = new Map<string, Question[]>()
     for (const q of questions) {
@@ -30,7 +33,9 @@ export function QuestionBankSheet({ questions, subjectName, className }: Questio
       if (list) list.push(q)
       else groups.set(key, [q])
     }
-    return [...groups.entries()].sort((a, b) => chapterOrder(a[0]) - chapterOrder(b[0]) || a[0].localeCompare(b[0]))
+    return [...groups.entries()]
+      .sort((a, b) => chapterOrder(a[0]) - chapterOrder(b[0]) || a[0].localeCompare(b[0]))
+      .map(([chapter, list]) => ({ chapter, total: list.length, sections: bySection(list) }))
   }, [questions])
 
   const totalMarks = questions.reduce((sum, q) => sum + q.marks, 0)
@@ -85,8 +90,8 @@ export function QuestionBankSheet({ questions, subjectName, className }: Questio
           No questions match the current filters.
         </p>
       ) : (
-        chapters.map(([chapter, list]) => (
-          // break-inside-avoid on the heading alone, not the whole chapter: a
+        chapters.map(({ chapter, total, sections }) => (
+          // break-inside-avoid on the headings alone, not the whole chapter: a
           // chapter can easily be longer than a page, and avoiding a break
           // across it would push the whole thing onto a fresh sheet and leave
           // most of the previous one blank.
@@ -97,13 +102,24 @@ export function QuestionBankSheet({ questions, subjectName, className }: Questio
             >
               {chapter}
               <span className="font-normal" style={{ fontSize: '9pt' }}>
-                {'  '}· {list.length} question{list.length === 1 ? '' : 's'}
+                {'  '}· {total} question{total === 1 ? '' : 's'}
               </span>
             </h2>
             <div style={{ height: '0.5pt', background: RULE_BLUE, marginTop: '1mm', marginBottom: '2mm' }} />
 
+            {sections.map((section) => (
+            <div key={section.type} style={{ marginBottom: '3mm' }}>
+            <h3
+              className="font-bold uppercase"
+              style={{ fontSize: '9.5pt', letterSpacing: '0.02em', breakAfter: 'avoid', breakInside: 'avoid', marginBottom: '1.5mm' }}
+            >
+              {section.title}
+              <span className="font-normal normal-case" style={{ fontSize: '8.5pt' }}>
+                {'  '}({section.items.length})
+              </span>
+            </h3>
             <ol style={{ fontSize: '10.5pt' }}>
-              {list.map((q, i) => (
+              {section.items.map((q, i) => (
                 <li key={q.id} style={{ marginBottom: '2.5mm', breakInside: 'avoid' }}>
                   <div className="flex items-start gap-2">
                     <span className="shrink-0 font-bold" style={{ minWidth: '8mm' }}>
@@ -141,13 +157,17 @@ export function QuestionBankSheet({ questions, subjectName, className }: Questio
                         </div>
                       )}
                     </div>
+                    {/* The kind of question is the section heading now, so
+                        only the marks are worth repeating per row. */}
                     <span className="shrink-0 whitespace-nowrap" style={{ fontSize: '8.5pt' }}>
-                      {QUESTION_TYPE_LABELS[q.question_type]} · {q.marks}
+                      {q.marks} {q.marks === 1 ? 'mark' : 'marks'}
                     </span>
                   </div>
                 </li>
               ))}
             </ol>
+            </div>
+            ))}
           </section>
         ))
       )}

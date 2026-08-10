@@ -13,7 +13,7 @@ import { chapterKey, chapterOrder } from '@/lib/chapters'
 import { signPages } from '@/lib/sourceBooks'
 import { McqOptionsEditor } from '@/components/McqOptionsEditor'
 import { SymbolPad } from '@/components/SymbolPad'
-import { QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
+import { bySection, QUESTION_TYPE_LABELS as TYPE_LABELS, QUESTION_TYPES } from '@/lib/questionTypes'
 import type { Class, Question, QuestionType, SourceBookPage, Subject } from '@/types/database'
 
 
@@ -335,7 +335,16 @@ export function QuestionBankPage() {
             No questions yet.
           </p>
         ) : (
-          filtered.map((q) => (
+          // Grouped the same way the printed booklet groups, so the bank on
+          // screen and the bank on paper read alike.
+          bySection(filtered).map((section) => (
+            <div key={section.type} className="space-y-2">
+              <div className="flex items-baseline gap-2 pt-2">
+                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{section.title}</h2>
+                <span className="text-xs text-slate-400 dark:text-slate-500">{section.items.length}</span>
+                <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+              </div>
+              {section.items.map((q) => (
             <div key={q.id} className="flex items-start justify-between rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -403,6 +412,8 @@ export function QuestionBankPage() {
                   Delete
                 </button>
               </div>
+            </div>
+              ))}
             </div>
           ))
         )}

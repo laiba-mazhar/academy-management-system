@@ -22,3 +22,29 @@ export const SUBJECTIVE_TYPES: QuestionType[] = ['short', 'long']
 export function typesForPart(part: 'objective' | 'subjective'): QuestionType[] {
   return part === 'objective' ? OBJECTIVE_TYPES : SUBJECTIVE_TYPES
 }
+
+// Section headings, as a paper would name them. The short labels above are for
+// badges and dropdowns, where "Multiple Choice Questions" would not fit.
+export const QUESTION_TYPE_SECTIONS: Record<QuestionType, string> = {
+  mcq: 'Multiple Choice Questions',
+  true_false: 'True or False',
+  fill_blank: 'Fill in the Blanks',
+  short: 'Short Questions',
+  long: 'Long Questions',
+}
+
+// The order sections appear in, objective before written, matching the two
+// halves of a printed paper. Used by the bank on screen and in print so a
+// teacher reading one recognises the other.
+export const SECTION_ORDER: QuestionType[] = ['mcq', 'true_false', 'fill_blank', 'short', 'long']
+
+/** Splits questions into sections in SECTION_ORDER, dropping empty ones. */
+export function bySection<T extends { question_type: QuestionType }>(
+  questions: T[]
+): { type: QuestionType; title: string; items: T[] }[] {
+  return SECTION_ORDER.map((type) => ({
+    type,
+    title: QUESTION_TYPE_SECTIONS[type],
+    items: questions.filter((q) => q.question_type === type),
+  })).filter((section) => section.items.length > 0)
+}
