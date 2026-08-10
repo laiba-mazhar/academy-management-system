@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { looksLikeLanguageSubject } from '@/lib/subjectLanguage'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
@@ -29,6 +30,9 @@ export function ClassesSubjectsPage() {
     name: string
     class_id: string
     teacher_id: string
+    translate_questions: boolean
+    /** True once a human has touched the toggle, which stops the name-based guess. */
+    translateChosen: boolean
   } | null>(null)
   const [subjectError, setSubjectError] = useState<string | null>(null)
   const [deleteSubject, setDeleteSubject] = useState<Subject | null>(null)
@@ -126,6 +130,7 @@ export function ClassesSubjectsPage() {
       name: subjectForm.name.trim(),
       class_id: subjectForm.class_id,
       teacher_id: subjectForm.teacher_id || null,
+      translate_questions: subjectForm.translate_questions,
       status: 'active' as const,
     }
     const result = subjectForm.id
@@ -263,6 +268,8 @@ export function ClassesSubjectsPage() {
                 name: '',
                 class_id: classes[0]?.id ?? '',
                 teacher_id: '',
+                translate_questions: true,
+                translateChosen: false,
               })
             }
             disabled={classes.length === 0}
@@ -320,6 +327,9 @@ export function ClassesSubjectsPage() {
                                     name: s.name,
                                     class_id: s.class_id,
                                     teacher_id: s.teacher_id ?? '',
+                                    translate_questions: s.translate_questions,
+                                    // An existing subject already has an answer.
+                                    translateChosen: true,
                                   })
                                 }
                                 className="mr-3 text-sm text-brand-600 hover:underline"
@@ -389,7 +399,17 @@ export function ClassesSubjectsPage() {
             <Field label="Subject name">
               <Input
                 value={subjectForm.name}
-                onChange={(e) => setSubjectForm({ ...subjectForm, name: e.target.value })}
+                onChange={(e) =>
+                  setSubjectForm({
+                    ...subjectForm,
+                    name: e.target.value,
+                    // Guessed from the name while nobody has said otherwise, so
+                    // typing "Urdu" turns translation off without being asked.
+                    translate_questions: subjectForm.translateChosen
+                      ? subjectForm.translate_questions
+                      : !looksLikeLanguageSubject(e.target.value),
+                  })
+                }
               />
             </Field>
             <Field label="Class">
@@ -417,6 +437,27 @@ export function ClassesSubjectsPage() {
                 ))}
               </Select>
             </Field>
+            <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+              <input
+                type="checkbox"
+                checked={subjectForm.translate_questions}
+                onChange={(e) =>
+                  setSubjectForm({
+                    ...subjectForm,
+                    translate_questions: e.target.checked,
+                    translateChosen: true,
+                  })
+                }
+                className="mt-0.5 h-4 w-4 shrink-0"
+              />
+              <span className="text-sm text-slate-700 dark:text-slate-200">
+                Store imported questions in both languages
+                <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                  Leave this off for Urdu, English, Arabic and Tarjama tul Quran — translating a language question
+                  replaces the very thing it tests. Maths, physics and the like read the same in either medium.
+                </span>
+              </span>
+            </label>
             {subjectError && <p className="text-sm text-red-600 dark:text-red-400">{subjectError}</p>}
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="secondary" onClick={() => setSubjectForm(null)}>

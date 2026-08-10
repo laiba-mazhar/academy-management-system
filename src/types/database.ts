@@ -46,6 +46,12 @@ export interface Subject {
   teacher_id: string | null
   status: SubjectStatus
   requested_by: string | null
+  /**
+   * Whether imported questions also get a translation. False for language
+   * subjects — Urdu, English, Tarjama tul Quran — where translating the
+   * question removes the thing being examined.
+   */
+  translate_questions: boolean
   created_at: string
 }
 
@@ -99,6 +105,8 @@ export interface AttendanceSettings {
 }
 
 export type QuestionType = 'mcq' | 'short' | 'long' | 'fill_blank' | 'true_false'
+/** The two languages the academy teaches in. */
+export type QuestionLanguage = 'ur' | 'en'
 export type QuestionDifficulty = 'easy' | 'medium' | 'hard'
 
 /** One MCQ choice. `key` is the printed label — "A", "B", … */
@@ -159,6 +167,12 @@ export interface Question {
   /** Correct option key, or a model answer. Null when unknown. */
   answer: string | null
   difficulty: QuestionDifficulty | null
+  /** Language of question_text as printed. Null on rows predating translation. */
+  language: QuestionLanguage | null
+  /** The same question in the other language. Null when there isn't one. */
+  translation: string | null
+  /** MCQ choices in the other language. Null unless options and a translation both exist. */
+  options_translated: QuestionOption[] | null
   /** Free-text provenance: "Board 2023", or the imported file's name. */
   source: string | null
   /** Set when the question is a snip from a scanned book rather than text. */
@@ -301,7 +315,10 @@ export interface Database {
       }
       subjects: {
         Row: Subject
-        Insert: InsertOf<Subject, 'id' | 'teacher_id' | 'status' | 'requested_by' | 'created_at'>
+        Insert: InsertOf<
+          Subject,
+          'id' | 'teacher_id' | 'status' | 'requested_by' | 'translate_questions' | 'created_at'
+        >
         Update: Partial<Subject>
         Relationships: []
       }
@@ -358,6 +375,9 @@ export interface Database {
           | 'options'
           | 'answer'
           | 'difficulty'
+          | 'language'
+          | 'translation'
+          | 'options_translated'
           | 'source'
           | 'source_page_id'
           | 'crop'

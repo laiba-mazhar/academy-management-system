@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { edgeFunctionError } from '@/lib/errors'
 import { loadPdf } from '@/lib/pdfText'
 import { dedupeKey, defaultMarks, type DraftQuestion } from '@/lib/questionParser'
-import type { QuestionType } from '@/types/database'
+import type { QuestionLanguage, QuestionOption, QuestionType } from '@/types/database'
 
 // Wide enough for a model to read Urdu diacritics and a subscript, without
 // making the upload the slow part.
@@ -47,9 +47,22 @@ export interface AiReadResult {
 interface ExtractedQuestion {
   type: QuestionType
   text: string
-  options: { key: string; text: string }[]
+  options: QuestionOption[]
   marks: number | null
   chapter: string | null
+  language: QuestionLanguage | null
+  translation: string | null
+  optionsTranslated: QuestionOption[]
+}
+
+export interface AiReadOptions {
+  exercisesOnly: boolean
+  /**
+   * Ask for the question in the other language as well. Off for language
+   * subjects, where a translation would replace the thing being examined —
+   * see subjects.translate_questions.
+   */
+  translate: boolean
 }
 
 export async function countPdfPages(file: File): Promise<number> {
@@ -82,10 +95,10 @@ function sleep(ms: number): Promise<void> {
 
 async function callReadQuestions(
   pages: { imageBase64: string }[],
-  exercisesOnly: boolean
+  options: AiReadOptions
 ): Promise<ExtractedQuestion[]> {
   const { data, error } = await supabase.functions.invoke('read-questions', {
-    body: { pages, exercisesOnly },
+    body: { pages, exercisesOnly: options.exercisesOnly, translate: options.translate },
   })
   if (error) throw new Error(await edgeFunctionError(error, 'Could not read those pages.'))
 
@@ -99,25 +112,25 @@ async function callReadQuestions(
 // already has and say where it stopped.
 async function callWithOneRetry(
   pages: { imageBase64: string }[],
-  exercisesOnly: boolean,
+  options: AiReadOptions,
   onWait: () => void
 ): Promise<ExtractedQuestion[]> {
   try {
-    return await callReadQuestions(pages, exercisesOnly)
+    return await callReadQuestions(pages, options)
   } catch (err) {
     const message = err instanceof Error ? err.message : ''
     const rateLimited = /quota|rate|too many|resource_exhausted/i.test(message)
     if (!rateLimited) throw err
     onWait()
     await sleep(RATE_LIMIT_WAIT_MS)
-    return await callReadQuestions(pages, exercisesOnly)
+    return await callReadQuestions(pages, options)
   }
 }
 
 export async function readQuestionsWithAi(
   file: File,
   range: PageRange,
-  options: { exercisesOnly: boolean },
+  options: AiReadOptions,
   onProgress: (p: AiReadProgress) => void
 ): Promise<AiReadResult> {
   const doc = await loadPdf(file)
@@ -148,7 +161,7 @@ export async function readQuestionsWithAi(
 
       let questions: ExtractedQuestion[]
       try {
-        questions = await callWithOneRetry(batch, options.exercisesOnly, () =>
+        questions = await callWithOneRetry(batch, options, () =>
           onProgress({ page: done, totalPages, note: 'Free-tier limit reached — waiting to carry on…' })
         )
       } catch (err) {
@@ -187,6 +200,9 @@ function toDraft(question: ExtractedQuestion, page: number, index: number): Draf
     marks: question.marks !== null ? String(question.marks) : defaultMarks(question.type),
     chapter: question.chapter ?? '',
     difficulty: '',
+    language: question.language,
+    translation: question.translation ?? '',
+    optionsTranslated: question.optionsTranslated ?? [],
     reason: question.marks !== null ? 'Read by AI' : 'Read by AI — marks not printed',
     uncertain: false,
   }
