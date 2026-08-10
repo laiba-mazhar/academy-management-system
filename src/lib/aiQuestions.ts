@@ -18,19 +18,23 @@ import type { QuestionLanguage, QuestionOption, QuestionType } from '@/types/dat
 // making the upload the slow part.
 const RENDER_WIDTH = 1600
 const JPEG_QUALITY = 0.85
-// Pages per request. Two gives the model enough context to join a question that
-// runs over a page break, while keeping the answer well inside one response.
-const PAGES_PER_CALL = 2
+// Pages per request. Four is what the function accepts, and for a textbook of
+// several hundred pages the request count is what decides whether the job fits
+// in a day's allowance at all: four pages a call turns a 300-page book from 150
+// requests into 75. It also gives the model more context for a question that
+// runs over a page break.
+const PAGES_PER_CALL = 4
 // The free tier caps requests per minute. One retry, after a wait long enough
 // for the window to roll over, turns a burst limit into a pause rather than a
 // failed import.
 const RATE_LIMIT_WAIT_MS = 25_000
-// Free-tier allowances are measured in single-digit requests per minute — the
-// project this was built for has five. Reading a page usually takes longer than
-// this on its own, so the floor costs nothing in the normal case and only bites
-// when several answers come back quickly in a row, which is precisely when the
-// limit would otherwise be tripped.
-const MIN_GAP_BETWEEN_CALLS_MS = 13_000
+// Free-tier allowances are per minute as well as per day, and the two models
+// worth using sit at 15 and 5 requests a minute. Rather than pick one and be
+// wrong for the other, the gap starts at the faster pace and backs off when the
+// limit is actually hit — a run against the slower model settles itself down
+// after one stumble instead of tripping on every batch.
+const BASE_GAP_MS = 4_500
+const MAX_GAP_MS = 20_000
 
 export interface AiReadProgress {
   page: number
@@ -48,6 +52,12 @@ export interface AiReadResult {
   pagesRead: number
   /** Set when the run stopped before the last page: quota, size or network. */
   stoppedEarly: string | null
+  /**
+   * The first page not read, when the run stopped early. A book of several
+   * hundred pages will not always finish in one go, and starting again from
+   * page one would both waste the day's allowance and duplicate the bank.
+   */
+  resumeFrom: number | null
 }
 
 interface ExtractedQuestion {
@@ -100,16 +110,19 @@ function sleep(ms: number): Promise<void> {
 }
 
 // When the last call went out, so the next one can be held back if it would
-// land inside the free tier's per-minute window.
+// land inside the free tier's per-minute window, and how long that gap
+// currently is. Both persist across runs in a session: a key that is rate
+// limited now will still be rate limited for the next book.
 let lastCallAt = 0
+let callGapMs = BASE_GAP_MS
 
 async function callReadQuestions(
   pages: { imageBase64: string }[],
   options: AiReadOptions
 ): Promise<ExtractedQuestion[]> {
   const since = Date.now() - lastCallAt
-  if (lastCallAt > 0 && since < MIN_GAP_BETWEEN_CALLS_MS) {
-    await sleep(MIN_GAP_BETWEEN_CALLS_MS - since)
+  if (lastCallAt > 0 && since < callGapMs) {
+    await sleep(callGapMs - since)
   }
   lastCallAt = Date.now()
 
@@ -137,6 +150,9 @@ async function callWithOneRetry(
     const message = err instanceof Error ? err.message : ''
     const rateLimited = /quota|rate|too many|resource_exhausted/i.test(message)
     if (!rateLimited) throw err
+    // Hitting the limit means the pace is wrong for this key, not just that
+    // this one call was unlucky, so the rest of the run slows down too.
+    callGapMs = Math.min(callGapMs * 2, MAX_GAP_MS)
     onWait()
     await sleep(RATE_LIMIT_WAIT_MS)
     return await callReadQuestions(pages, options)
@@ -157,6 +173,7 @@ export async function readQuestionsWithAi(
   const seen = new Set<string>()
   let pagesRead = 0
   let stoppedEarly: string | null = null
+  let resumeFrom: number | null = null
 
   try {
     for (let start = range.from; start <= range.to; start += PAGES_PER_CALL) {
@@ -185,6 +202,7 @@ export async function readQuestionsWithAi(
         // first eight pages of a paper beats losing all of it to page nine.
         if (drafts.length === 0) throw err
         stoppedEarly = err instanceof Error ? err.message : 'Reading stopped early.'
+        resumeFrom = start
         break
       }
 
@@ -202,7 +220,7 @@ export async function readQuestionsWithAi(
     await doc.destroy()
   }
 
-  return { drafts, pagesRead, stoppedEarly }
+  return { drafts, pagesRead, stoppedEarly, resumeFrom }
 }
 
 function toDraft(question: ExtractedQuestion, page: number, index: number): DraftQuestion {

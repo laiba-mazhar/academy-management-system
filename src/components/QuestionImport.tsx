@@ -217,6 +217,10 @@ export function QuestionImport({
       setFileName(pdfFile.name)
       setReadByAi(true)
       setAiNote(result.stoppedEarly)
+      // A book of several hundred pages will not finish in one sitting. The
+      // range box is pre-filled with where to carry on, so adding these and
+      // starting again does not re-read — and re-pay for — what is already in.
+      if (result.resumeFrom !== null) setPageRange(`${result.resumeFrom}-${range.to}`)
       setScannedFile(null)
       setTextUnreadable(false)
       setStep('review')
@@ -669,7 +673,8 @@ export function QuestionImport({
 
           {aiNote && (
             <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200">
-              Reading stopped before the last page, so these are the questions from the pages that were read. {aiNote}
+              Reading stopped before the last page, so these are the questions from the pages that were read. Add
+              them, then open this again — the page box is already set to carry on from where it stopped. {aiNote}
             </p>
           )}
 
