@@ -64,9 +64,11 @@ Use the paper's own section headings when it has them ("Objective", "Short answe
 
 For an mcq, put the choices in "options", each with the label as printed ("A", "a", "i", "١") and its text. If a question is not an mcq, leave "options" out.
 
-Splitting:
-- A numbered question whose parts are each independently answerable — (i), (ii), (iii), or (a), (b), (c) each asking a separate thing — becomes one entry per part. Repeat the shared instruction at the start of each part only if the part cannot be understood without it.
-- A question whose parts build on one another, or one stem followed by parts that only make sense together, stays as a single entry with its parts on separate lines.
+Splitting — this matters more than anything else here:
+- A question printed with enumerated parts — (i), (ii), (iii), or (a), (b), (c), or 1., 2., 3. — becomes ONE ENTRY PER PART. Always. A stem with six parts is six questions, not one.
+- Carry the shared instruction into every part, so each one stands alone. "Find the value of x in each of the following:" over "(i) log₂ 1024 = x" becomes the single entry "Find the value of x: log₂ 1024 = x". Do this even when the part is meaningless without the stem — especially then.
+- Do not put the part marker in the text. The bank numbers questions itself.
+- The only exception is a part that needs another part's answer — "using your result from (i)". Those stay together as one entry.
 - A bare marker on its own line — "(i)" with the question on the lines below it — belongs with the text that follows it, as one question.
 
 Do not include the question's own number or label at the start of the text — "Q3.", "Qno: 4", "Question 5:", "3.", "٣". The bank numbers questions itself when it prints them, and a number carried over would be printed twice. Sub-part markers inside a question that stays whole are kept.
@@ -269,6 +271,62 @@ function normalise(raw: RawQuestion): ExtractedQuestion | null {
   }
 }
 
+// Splitting enumerated parts, again, in code.
+//
+// The prompt asks for it and mostly gets it, but "one entry per part" is a
+// judgement the model can talk itself out of — a part like "log₂ 1024 = x"
+// reads as meaningless without its stem, so it keeps the six together and a
+// teacher gets one question where they wanted six. A prompt cannot be relied
+// on for something this structural, so it is enforced here too.
+//
+// Only a run of markers that actually counts up is split. A stray "(i)" in a
+// sentence, or a reference to "(ii)" in a later part, does not form a sequence
+// and is left alone.
+const ROMAN = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii']
+const LETTERS = 'abcdefghijkl'.split('')
+const PART_LINE = /^\s*[(\[]?\s*([ivx]{1,4}|[a-l]|\d{1,2})\s*[).\]]\s*(.+)$/i
+// "using your answer from (i)" — the one case where parts truly cannot stand
+// apart, so they stay as they were printed.
+const DEPENDS_ON_EARLIER = /\b(above|previous|part\s*\(?[ivxa-l\d]|your\s+(answer|result))\b/i
+
+/** Whether the markers are the opening run of one of the schemes we know. */
+function isSequence(markers: string[]): boolean {
+  if (markers.length < 2) return false
+  const lower = markers.map((m) => m.toLowerCase())
+  const schemes = [ROMAN, LETTERS, Array.from({ length: 12 }, (_, i) => String(i + 1))]
+  return schemes.some((scheme) => lower.every((m, i) => m === scheme[i]))
+}
+
+function splitEnumeratedParts(text: string): string[] {
+  if (DEPENDS_ON_EARLIER.test(text)) return [text]
+
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length < 3) return [text]
+
+  const stem: string[] = []
+  const markers: string[] = []
+  const bodies: string[] = []
+  for (const line of lines) {
+    const match = PART_LINE.exec(line)
+    if (match && (markers.length > 0 || stem.length > 0)) {
+      markers.push(match[1])
+      bodies.push(match[2].trim())
+    } else if (markers.length === 0) {
+      stem.push(line)
+    } else {
+      // A continuation line under a part belongs to that part.
+      bodies[bodies.length - 1] += ' ' + line
+    }
+  }
+
+  if (!isSequence(markers)) return [text]
+
+  // The stem is repeated into each part so every question stands alone, which
+  // is the whole point — the part on its own is not answerable.
+  const lead = stem.join(' ').trim()
+  return bodies.map((body) => (lead ? `${lead} ${body}` : body).replace(/\s+/g, ' ').trim())
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -330,6 +388,31 @@ Deno.serve(async (req: Request) => {
   const questions = parsed
     .map((entry) => normalise(entry as RawQuestion))
     .filter((q): q is ExtractedQuestion => q !== null)
+    .flatMap((q) => {
+      // An mcq's choices live in options, so its text never carries a marker
+      // list; splitting one would take it apart at its own answer options.
+      if (q.type === 'mcq') return [q]
+      const parts = splitEnumeratedParts(q.text)
+      if (parts.length < 2) return [q]
+
+      // The translation was written for the whole thing, so it is split the
+      // same way and paired up part for part. Only when it yields the same
+      // number of parts, though — pairing a six-part question against a
+      // four-part translation would attach the wrong English to the wrong
+      // Urdu, which is worse than having none.
+      const translatedParts = q.translation ? splitEnumeratedParts(q.translation) : []
+      const paired = translatedParts.length === parts.length
+
+      // Marks stay as printed rather than being divided: a paper writing
+      // "(6x2=12)" already gives the per-part figure, and halving a guess is
+      // no better than keeping it.
+      return parts.map((text, i) => ({
+        ...q,
+        text,
+        translation: paired ? translatedParts[i] : null,
+        optionsTranslated: [],
+      }))
+    })
 
   return jsonResponse({ questions })
 })
