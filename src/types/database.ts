@@ -226,6 +226,10 @@ export interface ExamResult {
   marks_obtained: number
   entered_by: string | null
   created_at: string
+  /**
+   * Left over from the removed result-messaging feature. The column is still
+   * in the database, so the type stays honest about it; nothing reads it.
+   */
   whatsapp_sent_at: string | null
 }
 

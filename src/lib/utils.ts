@@ -22,24 +22,6 @@ export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-// Normalizes a Pakistani mobile number to the digits-only, country-coded form
-// SendPK/WhatsApp expects (e.g. "923001234567" — no +, no spaces). Returns
-// null when it doesn't look like a valid PK mobile so callers can show a clear
-// "no usable number" state instead of firing a message at a bad address.
-// Handles the ways guardians' numbers are typically entered:
-//   0300-1234567 / 0300 1234567  -> 923001234567
-//   +92 300 1234567 / 0092300... -> 923001234567
-//   3001234567                   -> 923001234567
-export function toPakistaniMsisdn(phone: string | null | undefined): string | null {
-  if (!phone) return null
-  let digits = phone.replace(/\D/g, '')
-  if (digits.startsWith('0092')) digits = digits.slice(2) // 0092... -> 92...
-  else if (digits.startsWith('92')) { /* already country-coded */ }
-  else if (digits.startsWith('0')) digits = '92' + digits.slice(1) // 0300... -> 92300...
-  else if (digits.length === 10 && digits.startsWith('3')) digits = '92' + digits // 3001234567
-  // A valid PK mobile is 92 + a 10-digit number that starts with 3 (all mobile prefixes are 03xx).
-  return /^923\d{9}$/.test(digits) ? digits : null
-}
 
 export function netInvoiceAmount(invoice: { amount: number; discount: number }): number {
   return Math.max(0, invoice.amount - invoice.discount)
