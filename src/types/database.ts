@@ -96,12 +96,57 @@ export interface Attendance {
   date: string
   status: AttendanceStatus
   marked_by: string | null
+  /** Null when the student never scanned in — see `review_reason`. */
+  check_in_at: string | null
+  /** Null while the student is still in the building, or if they never scanned out. */
+  check_out_at: string | null
+  /** Minutes past the class's scheduled start, clamped at 0. Null without a check-in. */
+  late_minutes: number | null
+  /**
+   * Sum of every check-in -> check-out pair for the day, so a student who
+   * leaves at break and returns is credited for both sittings rather than for
+   * the whole span between their first and last card.
+   */
+  minutes_present: number | null
+  review_reason: AttendanceReviewReason | null
+  created_at: string
+}
+
+/**
+ * Why a row is worth a second look. A missing check-OUT is deliberately not in
+ * here: it is just `check_in_at && !check_out_at`, which only means anything
+ * once the day is over.
+ */
+export type AttendanceReviewReason = 'no_check_in' | 'very_late' | 'short_stay'
+
+export type AttendanceEventKind = 'check_in' | 'check_out'
+
+/**
+ * One card read, exactly as it happened. Append-only: rows are never updated or
+ * deleted, and the daily `Attendance` row is recomputed from them. This is the
+ * record that survives a kiosk restart.
+ */
+export interface AttendanceEvent {
+  id: string
+  student_id: string
+  class_id: string
+  date: string
+  kind: AttendanceEventKind
+  scanned_at: string
+  recorded_by: string | null
   created_at: string
 }
 
 export interface AttendanceSettings {
   id: number
   threshold_percent: number
+  timezone: string
+  default_start_time: string
+  grace_minutes: number
+  very_late_minutes: number
+  arrival_cutoff_minutes: number
+  min_stay_minutes: number
+  rescan_window_seconds: number
 }
 
 export type QuestionType = 'mcq' | 'short' | 'long' | 'fill_blank' | 'true_false'
@@ -359,13 +404,40 @@ export interface Database {
       }
       attendance: {
         Row: Attendance
-        Insert: InsertOf<Attendance, 'id' | 'marked_by' | 'created_at'>
+        Insert: InsertOf<
+          Attendance,
+          | 'id'
+          | 'marked_by'
+          | 'check_in_at'
+          | 'check_out_at'
+          | 'late_minutes'
+          | 'minutes_present'
+          | 'review_reason'
+          | 'created_at'
+        >
         Update: Partial<Attendance>
+        Relationships: []
+      }
+      attendance_events: {
+        Row: AttendanceEvent
+        Insert: InsertOf<AttendanceEvent, 'id' | 'scanned_at' | 'recorded_by' | 'created_at'>
+        Update: Partial<AttendanceEvent>
         Relationships: []
       }
       attendance_settings: {
         Row: AttendanceSettings
-        Insert: InsertOf<AttendanceSettings, 'id' | 'threshold_percent'>
+        Insert: InsertOf<
+          AttendanceSettings,
+          | 'id'
+          | 'threshold_percent'
+          | 'timezone'
+          | 'default_start_time'
+          | 'grace_minutes'
+          | 'very_late_minutes'
+          | 'arrival_cutoff_minutes'
+          | 'min_stay_minutes'
+          | 'rescan_window_seconds'
+        >
         Update: Partial<AttendanceSettings>
         Relationships: []
       }

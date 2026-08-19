@@ -1,20 +1,25 @@
 import { StudentAvatar } from './StudentAvatar'
 import { ClockIcon } from './icons'
+import type { ScanAction } from './ScanResultCard'
 
 export interface SignInEntry {
-  key: number
+  key: string
   name: string
   className: string | null
   time: string
+  action: ScanAction
   overdue: boolean
-  repeat: boolean
+  /** The scan tripped a review flag — shown so the desk can mention it in person. */
+  flagged: boolean
 }
 
-function Badge({ tone, children }: { tone: 'danger' | 'muted'; children: string }) {
-  const classes =
-    tone === 'danger'
-      ? 'bg-red-100 text-red-700 ring-red-600/15 dark:bg-red-900/40 dark:text-red-300 dark:ring-red-400/20'
-      : 'bg-slate-100 text-slate-600 ring-slate-500/15 dark:bg-slate-700 dark:text-slate-300 dark:ring-white/10'
+function Badge({ tone, children }: { tone: 'danger' | 'in' | 'out' | 'muted'; children: string }) {
+  const classes = {
+    danger: 'bg-red-100 text-red-700 ring-red-600/15 dark:bg-red-900/40 dark:text-red-300 dark:ring-red-400/20',
+    in: 'bg-green-100 text-green-700 ring-green-600/15 dark:bg-green-900/40 dark:text-green-300 dark:ring-green-400/20',
+    out: 'bg-sky-100 text-sky-700 ring-sky-600/15 dark:bg-sky-900/40 dark:text-sky-300 dark:ring-sky-400/20',
+    muted: 'bg-slate-100 text-slate-600 ring-slate-500/15 dark:bg-slate-700 dark:text-slate-300 dark:ring-white/10',
+  }[tone]
 
   return (
     <span
@@ -31,7 +36,7 @@ export function RecentSignIns({ entries }: { entries: SignInEntry[] }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 dark:border-slate-700/60">
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Recent sign-ins</h2>
+        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Recent scans</h2>
         {entries.length > 0 && (
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium tabular-nums text-slate-500 dark:bg-slate-700 dark:text-slate-400">
             {entries.length}
@@ -44,8 +49,8 @@ export function RecentSignIns({ entries }: { entries: SignInEntry[] }) {
           <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500">
             <ClockIcon size={20} />
           </span>
-          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">No sign-ins yet</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500">Scanned students will appear here.</p>
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">No scans yet</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">Students signing in and out will appear here.</p>
         </div>
       ) : (
         <ul className="divide-y divide-slate-100 dark:divide-slate-700/60">
@@ -60,7 +65,10 @@ export function RecentSignIns({ entries }: { entries: SignInEntry[] }) {
                 <p className="truncate text-xs text-slate-400 dark:text-slate-500">{entry.className ?? 'Unassigned'}</p>
               </div>
               {entry.overdue && <Badge tone="danger">Fee overdue</Badge>}
-              {entry.repeat && <Badge tone="muted">Repeat</Badge>}
+              {entry.flagged && <Badge tone="danger">Review</Badge>}
+              {entry.action === 'check_in' && <Badge tone="in">In</Badge>}
+              {entry.action === 'check_out' && <Badge tone="out">Out</Badge>}
+              {entry.action === 'duplicate' && <Badge tone="muted">Repeat</Badge>}
               <span className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">{entry.time}</span>
             </li>
           ))}

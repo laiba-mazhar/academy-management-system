@@ -5,15 +5,54 @@ import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/EmptyState'
-import { formatDate } from '@/lib/utils'
+import { formatClockTime, formatDate, formatMinutes } from '@/lib/utils'
 import { friendlyError } from '@/lib/errors'
 import { downloadAttendanceSheetPdf } from '@/lib/pdf'
 import { TeacherAttendanceSection } from '@/components/TeacherAttendanceSection'
-import type { Attendance, AttendanceStatus, Class, Student } from '@/types/database'
+import type { Attendance, AttendanceReviewReason, AttendanceStatus, Class, Student } from '@/types/database'
 
 function todayStr(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const REVIEW_LABEL: Record<AttendanceReviewReason, string> = {
+  no_check_in: 'No sign-in',
+  very_late: 'Very late',
+  short_stay: 'Short stay',
+}
+
+// What the desk scanner recorded for one student on this date. A dash means
+// nobody scanned a card — the row is whatever the teacher marks by hand.
+function ScanCell({ row }: { row: Attendance | undefined }) {
+  if (!row || (!row.check_in_at && !row.check_out_at)) {
+    return <span className="text-slate-300 dark:text-slate-600">—</span>
+  }
+
+  return (
+    <div className="leading-tight">
+      <span className="tabular-nums text-slate-700 dark:text-slate-200">
+        {row.check_in_at ? formatClockTime(row.check_in_at) : '??'}
+        {' – '}
+        {row.check_out_at ? formatClockTime(row.check_out_at) : 'still in'}
+      </span>
+      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+        {/* The stored total, not last-out minus first-in: a student who left at
+            break and came back must not be credited for the gap. */}
+        {row.minutes_present !== null && (
+          <span className="text-slate-400 dark:text-slate-500">{formatMinutes(row.minutes_present)}</span>
+        )}
+        {row.status === 'late' && row.late_minutes !== null && (
+          <span className="text-amber-600 dark:text-amber-400">{formatMinutes(row.late_minutes)} late</span>
+        )}
+        {row.review_reason && (
+          <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-medium text-red-700 ring-1 ring-inset ring-red-600/15 dark:bg-red-900/40 dark:text-red-300 dark:ring-red-400/20">
+            {REVIEW_LABEL[row.review_reason]}
+          </span>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export function AttendancePage() {
@@ -30,6 +69,9 @@ export function AttendancePage() {
   const [date, setDate] = useState(todayStr())
   const [students, setStudents] = useState<Student[]>([])
   const [marks, setMarks] = useState<Record<string, AttendanceStatus>>({})
+  // The scanner's side of the same rows: what the desk recorded, so a teacher
+  // marking the register can see who actually walked through the door and when.
+  const [scanned, setScanned] = useState<Record<string, Attendance>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -66,12 +108,15 @@ export function AttendancePage() {
       if (studentsRes.error) show(studentsRes.error.message, 'error')
       else setStudents(studentsRes.data as Student[])
       const initialMarks: Record<string, AttendanceStatus> = {}
+      const scans: Record<string, Attendance> = {}
       if (attendanceRes.data) {
         for (const row of attendanceRes.data as Attendance[]) {
           initialMarks[row.student_id] = row.status
+          scans[row.student_id] = row
         }
       }
       setMarks(initialMarks)
+      setScanned(scans)
       setLoading(false)
     }
     loadRoster()
@@ -279,6 +324,7 @@ export function AttendancePage() {
               <thead className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs uppercase text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-3">Student</th>
+                  <th className="no-print px-4 py-3">Scanned</th>
                   <th className="px-4 py-3">Present</th>
                   <th className="px-4 py-3">Absent</th>
                   <th className="px-4 py-3">Late</th>
@@ -287,13 +333,13 @@ export function AttendancePage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
                       Loading...
                     </td>
                   </tr>
                 ) : students.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">
                       No enrolled students in this class.
                     </td>
                   </tr>
@@ -301,6 +347,9 @@ export function AttendancePage() {
                   students.map((s) => (
                     <tr key={s.id} className="border-b border-slate-100 dark:border-slate-700/60 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
                       <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{s.full_name}</td>
+                      <td className="no-print px-4 py-3 text-xs">
+                        <ScanCell row={scanned[s.id]} />
+                      </td>
                       {(['present', 'absent', 'late'] as AttendanceStatus[]).map((status) => (
                         <td key={status} className="px-4 py-3">
                           <input

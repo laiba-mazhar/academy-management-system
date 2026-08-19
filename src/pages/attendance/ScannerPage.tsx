@@ -5,8 +5,9 @@ import { DeskClock } from '@/components/attendance/DeskClock'
 import { FeeOverdueBanner } from '@/components/attendance/FeeOverdueBanner'
 import { RecentSignIns, type SignInEntry } from '@/components/attendance/RecentSignIns'
 import { ScanConsole } from '@/components/attendance/ScanConsole'
-import { ScanResultCard } from '@/components/attendance/ScanResultCard'
+import { ScanResultCard, type ScanAction } from '@/components/attendance/ScanResultCard'
 import { CircleAlertIcon, TriangleAlertIcon } from '@/components/attendance/icons'
+import type { AttendanceReviewReason, AttendanceStatus } from '@/types/database'
 
 // The barcode decoder is ~460 kB of the bundle and is only needed by whoever
 // actually opens the camera — keeping it out of the main chunk means admins,
@@ -32,9 +33,21 @@ interface ScanResult {
   }
   attendance?: {
     date: string
-    status: string
-    signed_in_at: string
-    already_marked: boolean
+    /** What this particular scan did — the desk shows in/out, not a status. */
+    action: ScanAction
+    status: AttendanceStatus
+    /** When this particular card read happened. */
+    scanned_at: string | null
+    check_in_at: string | null
+    check_out_at: string | null
+    late_minutes: number | null
+    /** Total of every sitting today. */
+    minutes_present: number | null
+    /** Length of the sitting this scan closed, on the way out only. */
+    session_minutes: number | null
+    /** Sign-ins so far today. 2+ means the student left and came back. */
+    entry_count: number
+    review_reason: AttendanceReviewReason | null
   }
   // The RPC also returns the outstanding amounts and the unpaid month list.
   // The desk deliberately reads only the flag: whether an account is behind is
@@ -44,7 +57,17 @@ interface ScanResult {
   }
 }
 
-function formatTime(timestamp: string): string {
+// One row of the persisted day log, from recent_attendance_scans().
+interface ScanLogRow {
+  scanned_at: string
+  kind: 'check_in' | 'check_out'
+  full_name: string
+  class_name: string | null
+  review_reason: AttendanceReviewReason | null
+}
+
+function formatTime(timestamp: string | null): string {
+  if (!timestamp) return '—'
   return new Date(timestamp).toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
@@ -68,6 +91,33 @@ export function ScannerPage() {
   // decode callback that closes over a stale render, so reading the state
   // variable there would let a second scan through mid-request.
   const busyRef = useRef(false)
+
+  // The running list is read back from the database rather than kept only in
+  // this component, so restarting the kiosk or signing in again still shows
+  // everything already scanned today instead of an empty panel.
+  useEffect(() => {
+    async function loadHistory() {
+      const { data, error } = await supabase.rpc('recent_attendance_scans', {
+        p_local_date: todayLocalDate(),
+        p_limit: 8,
+      })
+      if (error || !data) return
+      setHistory(
+        (data as ScanLogRow[]).map((row, i) => ({
+          key: `${row.scanned_at}-${i}`,
+          name: row.full_name,
+          className: row.class_name,
+          time: formatTime(row.scanned_at),
+          action: row.kind,
+          // Fee status is a live lookup done at scan time; the day log does not
+          // carry it, so an older row simply does not claim anything about fees.
+          overdue: false,
+          flagged: row.review_reason !== null,
+        }))
+      )
+    }
+    loadHistory()
+  }, [])
 
   // A keyboard-wedge scanner types into whatever holds focus, so the input has
   // to keep it — including after a stray click elsewhere on the screen. Clicks
@@ -111,15 +161,18 @@ export function ScannerPage() {
     setResult(scan)
     setScanSeq((n) => n + 1)
     if (scan.ok && scan.student && scan.attendance) {
+      const a = scan.attendance
+      const stamp = a.scanned_at ?? (a.action === 'check_in' ? a.check_in_at : a.check_out_at)
       setHistory((prev) =>
         [
           {
-            key: Date.now(),
+            key: `${a.scanned_at ?? Date.now()}-live`,
             name: scan.student!.full_name,
             className: scan.student!.class_name,
-            time: formatTime(scan.attendance!.signed_in_at),
+            time: formatTime(stamp),
+            action: a.action,
             overdue: !!scan.fee?.overdue,
-            repeat: scan.attendance!.already_marked,
+            flagged: a.review_reason !== null,
           },
           ...prev,
         ].slice(0, 8)
@@ -147,7 +200,7 @@ export function ScannerPage() {
             Attendance Desk
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Scan a student card to sign them in for today.
+            Scan a card to sign in. Scan it again on the way out to sign out.
           </p>
         </div>
         <DeskClock />
@@ -198,7 +251,7 @@ export function ScannerPage() {
             <TriangleAlertIcon size={18} />
           </span>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">Not signed in</p>
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">Not recorded</p>
             <p className="mt-0.5 break-words text-xs text-amber-800/90 dark:text-amber-300/90">{result.message}</p>
           </div>
         </div>
@@ -210,8 +263,15 @@ export function ScannerPage() {
             name={student.full_name}
             className={student.class_name}
             barcode={student.barcode}
-            signedInAt={attendance.signed_in_at}
-            alreadyMarked={attendance.already_marked}
+            action={attendance.action}
+            status={attendance.status}
+            checkInAt={attendance.check_in_at}
+            checkOutAt={attendance.check_out_at}
+            lateMinutes={attendance.late_minutes}
+            sessionMinutes={attendance.session_minutes}
+            minutesPresent={attendance.minutes_present}
+            entryCount={attendance.entry_count}
+            reviewReason={attendance.review_reason}
           />
 
           {/* Sits directly under the confirmation rather than above it: the desk
