@@ -29,7 +29,7 @@ import { TeacherCourseBreakdownPage } from '@/pages/teacher/TeacherCourseBreakdo
 import { StudentCardsPage } from '@/pages/admin/StudentCardsPage'
 import { ScannerPage } from '@/pages/attendance/ScannerPage'
 import { MonthlyReportsPage } from '@/pages/admin/MonthlyReportsPage'
-import { SettingsPage } from '@/pages/admin/SettingsPage'
+import { SettingsPage } from '@/pages/shared/SettingsPage'
 
 export default function App() {
   return (
@@ -70,12 +70,21 @@ export default function App() {
                 <Route path="exams" element={<ExamsPage />} />
                 <Route path="exams/:examId" element={<ExamDetailPage basePath="/teacher/exams" />} />
                 <Route path="course-breakdown" element={<TeacherCourseBreakdownPage />} />
+                <Route path="settings" element={<SettingsPage />} />
               </Route>
             </Route>
 
             <Route element={<ProtectedRoute allowedRole="attendance" />}>
               <Route path="/scan" element={<ScannerLayout />}>
                 <Route index element={<ScannerPage />} />
+                <Route
+                  path="settings"
+                  element={
+                    <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-6">
+                      <SettingsPage />
+                    </div>
+                  }
+                />
               </Route>
             </Route>
 

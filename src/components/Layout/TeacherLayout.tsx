@@ -11,6 +11,7 @@ const navItems: NavItem[] = [
   { label: 'Question Bank', to: '/teacher/questions' },
   { label: 'Exams & Results', to: '/teacher/exams' },
   { label: 'Course Breakdown', to: '/teacher/course-breakdown' },
+  { label: 'Settings', to: '/teacher/settings' },
 ]
 
 export function TeacherLayout() {
