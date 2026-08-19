@@ -56,6 +56,22 @@ export function formatDateTime(timestamp: string | null): string {
   })
 }
 
+/** Clock time only — what the attendance desk and the register care about. */
+export function formatClockTime(timestamp: string | null): string {
+  if (!timestamp) return '—'
+  return new Date(timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+/** A span of minutes as "5h 37m" / "45m". Reads faster than a decimal at a desk. */
+export function formatMinutes(minutes: number | null): string {
+  if (minutes === null || minutes < 0) return '—'
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  if (h === 0) return `${m}m`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}m`
+}
+
 export function formatMonth(dateStr: string): string {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
 }

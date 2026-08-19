@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import logoUrl from '@/assets/maktab_logo_transparent.png'
@@ -7,6 +7,9 @@ import logoUrl from '@/assets/maktab_logo_transparent.png'
 // header instead of the sidebar shell the admin/teacher panels use.
 export function ScannerLayout() {
   const { profile, signOut } = useAuth()
+  // The desk has no sidebar, so its one other page is reached from the header —
+  // and the link flips back to the scanner so a kiosk is never stranded.
+  const onSettings = useLocation().pathname.startsWith('/scan/settings')
 
   return (
     <div className="flex min-h-dvh flex-col bg-cream-50 dark:bg-slate-900">
@@ -25,6 +28,12 @@ export function ScannerLayout() {
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <span className="hidden text-sm text-brand-800 dark:text-cream-100 sm:inline">{profile?.full_name}</span>
+          <Link
+            to={onSettings ? '/scan' : '/scan/settings'}
+            className="rounded-lg border border-brand-300 px-2.5 py-1.5 text-sm font-medium text-brand-700 transition-colors hover:bg-brand-50 dark:border-slate-600 dark:text-cream-100 dark:hover:bg-slate-700 sm:px-3"
+          >
+            {onSettings ? 'Back to desk' : 'Password'}
+          </Link>
           <ThemeToggle />
           <button
             onClick={() => signOut()}

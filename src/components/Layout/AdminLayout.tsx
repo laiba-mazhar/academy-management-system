@@ -17,6 +17,7 @@ const navItems: NavItem[] = [
   { label: 'Salaries', to: '/admin/salaries' },
   { label: 'Monthly Reports', to: '/admin/monthly-reports' },
   { label: 'Course Breakdown', to: '/admin/course-breakdown' },
+  { label: 'Settings', to: '/admin/settings' },
 ]
 
 export function AdminLayout() {
