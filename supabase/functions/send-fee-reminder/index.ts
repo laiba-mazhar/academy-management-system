@@ -15,7 +15,12 @@ import { corsHeaders, jsonResponse } from '../_shared/cors.ts'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-const FROM_ADDRESS = Deno.env.get('REMINDER_FROM_ADDRESS') ?? '"Maktab - The Educational Institute" <onboarding@resend.dev>'
+// No sandbox fallback on purpose. Defaulting to onboarding@resend.dev used to
+// make a misconfigured install look healthy: Resend accepted every request and
+// then delivered only to the account owner, so "Reminder sent" appeared on
+// screen while guardians received nothing and no error was raised anywhere.
+// Requiring the address means a missing domain fails loudly at the first send.
+const FROM_ADDRESS = Deno.env.get('REMINDER_FROM_ADDRESS')
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -28,6 +33,17 @@ Deno.serve(async (req) => {
   if (!RESEND_API_KEY) {
     return jsonResponse(
       { error: 'RESEND_API_KEY is not configured. Run: supabase secrets set RESEND_API_KEY=your-key' },
+      500
+    )
+  }
+
+  if (!FROM_ADDRESS) {
+    return jsonResponse(
+      {
+        error:
+          'REMINDER_FROM_ADDRESS is not configured, so mail would be sent from the Resend sandbox sender and reach nobody but the Resend account owner. ' +
+          'Verify a domain in Resend, then run: supabase secrets set REMINDER_FROM_ADDRESS="Your Academy <noreply@yourdomain.com>"',
+      },
       500
     )
   }
